@@ -1,13 +1,13 @@
-
-
-if string.find(_G._VERSION, "OpenOS") == nil
+if string.find(_G._OSVERSION, "OpenOS") == nil
 then
-  error("The AwooOS installer now only supports OpenOS. Install OpenOS to run the AwooOS installer.")
+  print("The AwooOS installer now only supports OpenOS. Install OpenOS to run the AwooOS installer.")
+  return
 end
 
 local component = require("component")
 local fs = require("filesystem")
 local computer = require("computer")
+local internet = require("internet")
 
 local eeprom = component.eeprom
 
@@ -16,22 +16,25 @@ local init_bootloader_github_address = "https://raw.githubusercontent.com/nyanit
 print("This script will install AwooOS onto the current computer.")
 print("It will overwrite the EEPROM and remove all files from the current filesystem.")
 io.write("Do you want to continue? [y/N] ")
-repeat
+while true
+do
   local answer = io.read()
-  if answer:lower() == "N" or "n" then exit(1) end
-until answer ~= "y"
+  if answer:lower() == "n" then return end
+  if answer:lower() == "y" then break end
+end
 
 print("Writing init bootloader to EEPROM...")
-local internet = component.list("internet")()
-local success, internet_handle = pcall(component.invoke, internet, "request", init_bootloader_github_address)
+local success, internet_handle = pcall(internet.request, init_bootloader_github_address)
 if not success then
-  error("Failed to request init bootloader from github: " .. tostring(internet_handle))
+  print("Failed to request init bootloader from github: " .. tostring(internet_handle))
+  return
 end
 local init_bootloader_data = ""
 for chunk in internet_handle do init_bootloader_data = init_bootloader_data .. chunk end
 local success, err = pcall(eeprom.set, init_bootloader_data)
 if not success then
-  error("Failed to write EEPROM: " .. tostring(err))
+  print("Failed to write EEPROM: " .. tostring(err))
+  return
 end
 print("Init bootloader written to EEPROM.")
 

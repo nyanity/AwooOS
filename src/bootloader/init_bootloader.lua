@@ -1,16 +1,3 @@
-do -- in release delete this... maybe
-  local debug = component.list("debug")()
-  if debug 
-  then
-    success, users = pcall(component.invoke, debug, "getPlayers")
-    if not success then error("Failed to get players: " .. users) end
-    for _, username in pairs(users)
-    do
-      if username == "Archevod" then error("Archevod detected. Aborting.") end
-    end
-  end
-end
-
 if #component.list("filesystem") == 0 then error("There is no any bootable filesystem in computer.") end
 if component.list("internet")() == nil then error("There is no internet card in computer.") end
 
@@ -51,7 +38,7 @@ do
     if not fs_proxy then error("Failed to proxy boot address.") end
     for file in fs_proxy.list("/")
     do
-      file_path = fs_proxy.concat(file_path, file)
+      file_path = file_path .. file
       if fs_proxy.isDirectory(file_path) then clean_up_fs(fs_proxy, file_path) fs_proxy.remove(file_path)
       else fs_proxy.remove(file_path) end
     end
@@ -65,7 +52,11 @@ do
 
     local file_success, file_handle = eeprom_invoke(fs_boot_address, "open", "/installation.lua", "w")
     if not file_success then error("Failed to open /installation.lua file: " .. file_handle) end
-    for chunk in internet_handle do file_handle:write(chunk) end 
+    while true do
+      local chunk = internet_handle.read()
+      if not chunk then break end
+      file_handle.write(chunk)
+    end 
     file_handle:close()
   end
 

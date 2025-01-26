@@ -1,7 +1,7 @@
 local component = component
 local computer = computer
 
-_G._VERSION = "AwooOS 0.1"
+_G._OSVERSION = "AwooOS 0.1"
 
 local gpu = component.list("gpu")()
 

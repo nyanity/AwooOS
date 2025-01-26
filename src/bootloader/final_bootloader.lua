@@ -51,10 +51,6 @@
     if not fs_boot_address then error("No boot address found.") end
     status("Recived boot address: " .. fs_boot_address)
   
-    clean_up_fs(fs_boot_address, "/") 
-    status("Filesystem is cleaned.")
-    download_installation(fs_boot_address)
-    status("/installation.lua is downloaded.")
     local reason
     boot, reason = try_load_from(fs_boot_address)
     if not boot

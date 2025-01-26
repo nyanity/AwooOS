@@ -26,7 +26,7 @@ do
     end
 
     local function donwload_os_files()
-        local github_os_file_addresses = {["/boot/boot.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/kernel/boot/boot.lua"} -- example {["/bin/ls.lua"] = "https://raw.githubusercontent.com/ocawesome101/awoo_os/main/src/bin/ls.lua"}
+        local github_os_file_addresses = {["/boot/boot.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/kernel/boot/boot.lua"}
 
         local fs_proxy = component.proxy(current_fs_address)
         local internet = component.list("internet")()
@@ -44,8 +44,12 @@ do
                 success, file_handle = bpcall(fs_proxy, "open", path, "w") -- try again
                 if not success then error("Failed to open " .. path .. " file: " .. file_handle) end
             end
-
-            for chunk in internet_handle do file_handle:write(chunk) end
+            
+            while true do
+                local chunk = internet_handle.read()
+                if not chunk then break end
+                file_handle.write(chunk)
+            end
             status("Writed OS file: " .. path)
             file_handle:close()
         end
@@ -63,8 +67,12 @@ do
             if not success then error("Failed to request " .. github_final_bootloader_address .. " from github: " .. internet_handle) end
         end
 
-        local final_bootloader_data = {}
-        for chunk in internet_handle do table.insert(final_bootloader_data, chunk) end
+        local final_bootloader_data = ""
+        while true do
+            local chunk = internet_handle.read()
+            if not chunk then break end
+            final_bootloader_data = final_bootloader_data .. chunk
+        end
         status("Downloaded final bootloader")
         component.list("eeprom")().set(final_bootloader_data)
         component.setBootAddress(current_fs_address)
@@ -80,5 +88,5 @@ do
     status("Installation completed")
 
     status("Shutting down computer")
-    computer.shutdown(true)
+    computer.stop()
 end
