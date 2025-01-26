@@ -26,7 +26,7 @@ do
     end
 
     local function donwload_os_files()
-        local github_os_file_addresses = {["path"] = "address"} -- example {["/bin/ls.lua"] = "https://raw.githubusercontent.com/ocawesome101/awoo_os/main/src/bin/ls.lua"}
+        local github_os_file_addresses = {["/boot/boot.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/kernel/boot/boot.lua"} -- example {["/bin/ls.lua"] = "https://raw.githubusercontent.com/ocawesome101/awoo_os/main/src/bin/ls.lua"}
 
         local fs_proxy = component.proxy(current_fs_address)
         local internet = component.list("internet")()
@@ -52,7 +52,7 @@ do
     end
 
     local function download_final_bootloader_and_setup_up_system()
-        local github_final_bootloader_address = "..."
+        local github_final_bootloader_address = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/bootloader/final_bootloader.lua"
 
         local fs_proxy = component.proxy(current_fs_address)
         local internet = component.list("internet")()

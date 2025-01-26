@@ -11,7 +11,7 @@ local computer = require("computer")
 
 local eeprom = component.eeprom
 
-local init_bootloader_github_address = ""
+local init_bootloader_github_address = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/bootloader/init_bootloader.lua"
 
 print("This script will install AwooOS onto the current computer.")
 print("It will overwrite the EEPROM and remove all files from the current filesystem.")

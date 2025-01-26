@@ -59,7 +59,7 @@ do
 
   local function download_installation(fs_boot_address)
     local internet = component.list("internet")()
-    local github_installation_address = "..." -- change this to the github address
+    local github_installation_address = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/kernel/installation.lua" -- change this to the github address
     local internet_success, internet_handle = eeprom_invoke(internet, "request", github_installation_address)
     if not internet_success then error("Failed to request /installation.lua file from github: " .. internet_handle) end
 
