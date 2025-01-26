@@ -1,4 +1,8 @@
-if #component.list("filesystem") == 0 then error("There is no any bootable filesystem in computer.") end
+do
+  local is_there_bootable_fs
+  for _, __ in component.list("filesystem") do is_there_bootable_fs = is_there_bootable_fs + 1 end
+  if is_there_bootable_fs <= 1 then error("There is no any bootable filesystem in computer.") end
+end
 if component.list("internet")() == nil then error("There is no internet card in computer.") end
 
 local installation
