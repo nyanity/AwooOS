@@ -1,7 +1,12 @@
-if string.find(_G._OSVERSION, "OpenOS") == nil
-then
-  print("The AwooOS installer now only supports OpenOS. Install OpenOS to run the AwooOS installer.")
-  return
+do
+  local supportedOS, found = {"OpenOS"}, false
+  for _, os in ipairs(supportedOS) do if string.find(_G._OSVERSION, os) ~= nil then found = true break end end
+  if not found
+  then
+    print("The AwooOS installer doesn't support this OS.")
+    print("Supported OS: " .. table.concat(supportedOS, ", "))
+    return
+  end
 end
 
 local component = require("component")
@@ -9,9 +14,11 @@ local fs = require("filesystem")
 local computer = require("computer")
 local internet = require("internet")
 
-local eeprom = component.eeprom
-
-local init_bootloader_github_address = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/bootloader/init_bootloader.lua"
+-- init bootloader table
+local init_btldr = {
+  addr = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/bootloader/init_bootloader.lua",
+  data = ""
+}
 
 print("This script will install AwooOS onto the current computer.")
 print("It will overwrite the EEPROM and remove all files from the current filesystem.")
@@ -23,28 +30,50 @@ do
   if answer:lower() == "y" then break end
 end
 
+print("Choose the filesystem to install AwooOS:")
+local fs = {__size = 0}
+for address, _ in component.list("filesystem") do
+  table.insert(fs, address)
+  fs.__size = fs.__size + 1
+end
+
+for i, address in ipairs(fs) do
+  print(i .. ": " .. address)
+end
+
+while true
+do
+  io.write("Type the index: ")
+  local answer = tonumber(io.read())
+  if answer and answer > 0 and answer <= fs.__size then fs = fs[answer] break end
+end
+print("Selected filesystem: " .. fs)
+
 print("Writing init bootloader to EEPROM...")
-local success, internet_handle = pcall(internet.request, init_bootloader_github_address)
+-- download init bootloader
+local success, internet_handle = pcall(internet.request, init_btldr.addr)
 if not success then
   print("Failed to request init bootloader from github: " .. tostring(internet_handle))
   return
 end
-local init_bootloader_data = ""
-for chunk in internet_handle do init_bootloader_data = init_bootloader_data .. chunk end
-local success, err = pcall(eeprom.set, init_bootloader_data)
+
+-- write init bootloader to EEPROM
+for chunk in internet_handle do init_btldr.data = init_btldr.data .. chunk end
+local success, err = pcall(component.eeprom.set, init_btldr.data)
 if not success then
   print("Failed to write EEPROM: " .. tostring(err))
   return
 end
 print("Init bootloader written to EEPROM.")
 
-local eepromLabel = "AwooOS"
-eeprom.setLabel(eepromLabel)
-print("EEPROM label set to: " .. eeprom.getLabel())
+local label = "AwooOS"
+component.eeprom.setLabel(label)
+print("EEPROM label set to: " .. label)
 
 print("Setting current filesystem as default boot address...")
-local currentFsAddress = fs.get("/").address
-computer.setBootAddress(currentFsAddress)
+computer.setBootAddress(fs)
+
+io.read()
 
 print("Init bootloader is downloaded and written!")
 print("Reboot to launch installation of AwooOS. The system will now reboot.")

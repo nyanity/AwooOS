@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 do
   local is_there_bootable_fs = 0
   for _, __ in component.list("filesystem") do is_there_bootable_fs = is_there_bootable_fs + 1 end
@@ -5,10 +6,12 @@ do
 end
 if component.list("internet")() == nil then error("There is no internet card in computer.") end
 
+=======
+>>>>>>> 9f32c5c5bb3a6b4dc3b96995fcd9206bc02c1015
 local installation
 do
   local component_invoke = component.invoke
-  local function eeprom_invoke(address, method, ...) -- wrapper for pcall
+  local function eeprom_invoke(address, method, ...)
     local success, result = pcall(component_invoke, address, method, ...)
     if not success then return nil, result
     else return success, result
@@ -23,56 +26,40 @@ do
     return eeprom_invoke(eeprom, "setData", address)
   end
 
-  do -- bind gpu to screen
+  do
     local screen = component.list("screen")()
     local gpu = component.list("gpu")()
     if gpu and screen then eeprom_invoke(gpu, "bind", screen)
-    else error() -- no error message because there is no gpu of screen lol
+    else error()
     end
   end
 
-  local cursor = {1, 1}
-  local function status(text) -- status message
-    gpu.set(cursor[1], cursor[2], text)
-    cursor[2] = cursor[2] + 1
-  end
-
-  local function clean_up_fs(fs_boot_address, file_path) -- rm /* -rf be like:
-    local fs_proxy = component.proxy(fs_boot_address)
-    if not fs_proxy then error("Failed to proxy boot address.") end
-    for file in fs_proxy.list("/")
+  local function __fsclean(bt_addr, file_path)
+    local success, files = eeprom_invoke(bt_addr, "list", "/")
+    if not success then error("Failed to get list in path: " .. file_path .. ": " .. files) end
+    for _, path in ipairs(files)
     do
-      file_path = file_path .. file
-      if fs_proxy.isDirectory(file_path) then clean_up_fs(fs_proxy, file_path) fs_proxy.remove(file_path)
-      else fs_proxy.remove(file_path) end
+      local full_path = file_path .. path
+
+      local success, is_directory = eeprom_invoke(bt_addr, "isDirectory", full_path)
+      if not success then error("Failed to get isDirectory in path:" .. full_path .. ": " .. is_directory) end
+
+      if is_directory then __fsclean(bt_addr, full_path) end
+
+      local success, rm = eeprom_invoke(bt_addr, "remove", full_path)
+      if not success then error("Failed to remove file in path: " .. full_path .. ": " .. rm) end
     end
-  end
-
-  local function download_installation(fs_boot_address)
-    local internet = component.list("internet")()
-    local github_installation_address = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/kernel/installation.lua" -- change this to the github address
-    local internet_success, internet_handle = eeprom_invoke(internet, "request", github_installation_address)
-    if not internet_success then error("Failed to request /installation.lua file from github: " .. internet_handle) end
-
-    local file_success, file_handle = eeprom_invoke(fs_boot_address, "open", "/installation.lua", "w")
-    if not file_success then error("Failed to open /installation.lua file: " .. file_handle) end
-    while true do
-      local chunk = internet_handle.read()
-      if not chunk then break end
-      file_handle.write(chunk)
-    end 
-    file_handle:close()
   end
 
   local function try_load_from(fs_boot_address)
-    local handle, reason = eeprom_invoke(fs_boot_address, "open", "/installation.lua")
-    if not handle then
+    local reason, handle = eeprom_invoke(fs_boot_address, "open", "/installation.lua")
+    if not reason then
       return nil, reason
     end
     local buffer = ""
     repeat
-      local data, reason = eeprom_invoke(fs_boot_address, "read", handle, math.maxinteger or math.huge)
-      if not data and reason then
+      local reason, data = eeprom_invoke(fs_boot_address, "read", handle, math.maxinteger or math.huge)
+      if not reason then
         return nil, reason
       end
       buffer = buffer .. (data or "")
@@ -81,20 +68,37 @@ do
     return load(buffer, "=installation")
   end
 
-  local fs_boot_address = computer.getBootAddress()
-  if not fs_boot_address then error("No boot address found.") end
-  status("Recived boot address: " .. fs_boot_address)
+  -- get boot address
+  local sucess, bt_addr = computer.getBootAddress()
+  if not sucess then error("No boot address found: " .. bt_addr) end
 
-  clean_up_fs(fs_boot_address, "/") 
-  status("Filesystem is cleaned.")
-  download_installation(fs_boot_address)
-  status("/installation.lua is downloaded.")
+  --clean up fs
+  __fsclean(bt_addr, "/")
+
+  -- download installation
+  local internet = component.list("internet")()
+  local instal_addr = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/kernel/installation.lua"
+  local success, request = eeprom_invoke(internet, "request", instal_addr)
+  if not success then error("Failed to request installation.lua from github: " .. request) end
+
+  local success, handle = eeprom_invoke(bt_addr, "open", "/installation.lua", "w")
+  if not success then error("Failed to open /installation.lua file: " .. file) end
+
+  while true
+  do
+    local chunk = request.read()
+    if not chunk then break end
+    local success, wrt = eeprom_invoke(bt_addr, "write", handle, chunk)
+    if not success then error("Failed to write to /installation.lua file: " .. wrt) end
+  end
+  local sucess, cls = eeprom_invoke(bt_addr, "close", handle)
+  if not sucess then error("Failed to close /installation.lua file: " .. cls) end
+
   local reason
-  installation, reason = try_load_from(fs_boot_address)
+  installation, reason = try_load_from(bt_addr)
   if not installation
   then
     error("no bootable medium found" .. (reason and (": " .. tostring(reason)) or ""), 0)
   end
-  status("Installation function is loaded.")
 end
 return installation()
