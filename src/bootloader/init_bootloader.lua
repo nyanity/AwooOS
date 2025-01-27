@@ -34,15 +34,14 @@ do
     cursor[2] = cursor[2] + 1
   end
 
-  local function clean_up_fs(fs_boot_addr, file_path)
-    local fs_proxy = component.proxy(fs_boot_addr)
-    if not fs_proxy then error("Failed to proxy boot address.") end
-    for file in fs_proxy.list("/")
-    do
-      file_path = file_path .. file
-      if fs_proxy.isDirectory(file_path) then clean_up_fs(fs_proxy, file_path) fs_proxy.remove(file_path) else fs_proxy.remove(file_path) end
+  local function clean_up_fs(fs_proxy, file_path)
+    local files = fs_proxy.list(file_path) if not files then error("Failed to list files in path: " .. file_path) end
+    for _, file in pairs(files) do 
+      local full_path = file_path .. file
+        if fs_proxy.isDirectory(full_path) then clean_up_fs(fs_proxy, full_path .. "/") end fs_proxy.remove(full_path)
     end
-  end
+end
+
 
   local function download_installation(fs_boot_addr)
     local internet = component.list("internet")()
