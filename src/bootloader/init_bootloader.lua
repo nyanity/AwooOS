@@ -35,11 +35,14 @@ do
   end
 
   local function clean_up_fs(fs_proxy, file_path)
-    local files = fs_proxy.list(file_path) if not files then error("Failed to list files in path: " .. file_path) end
-    for _, file in pairs(files) do 
-      local full_path = file_path .. file
-        if fs_proxy.isDirectory(full_path) then clean_up_fs(fs_proxy, full_path .. "/") end fs_proxy.remove(full_path)
+    if not fs_proxy or type(fs_proxy.list) ~= "function" then error("Invalid fs proxy or 'list' method not found.") end
+    if not file_path:match(".*/$") then file_path = file_path .. "/" end
+    local success, files = pcall(fs_proxy.list, file_path)
+    if not success or not files then error("Failed to list files in path: " .. file_path) end
+    for _, file in pairs(files) do local full_path = file_path .. file
+      if fs_proxy.isDirectory(full_path) then clean_up_fs(fs_proxy, full_path .. "/") end fs_proxy.remove(full_path)
     end
+  end
 end
 
 
