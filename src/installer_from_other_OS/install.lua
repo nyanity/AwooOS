@@ -73,8 +73,6 @@ print("EEPROM label set to: " .. label)
 print("Setting current filesystem as default boot address...")
 computer.setBootAddress(fs)
 
-io.read()
-
 print("Init bootloader is downloaded and written!")
 print("Reboot to launch installation of AwooOS. The system will now reboot.")
 os.sleep(2)

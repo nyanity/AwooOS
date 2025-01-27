@@ -1,13 +1,3 @@
-<<<<<<< HEAD
-do
-  local is_there_bootable_fs = 0
-  for _, __ in component.list("filesystem") do is_there_bootable_fs = is_there_bootable_fs + 1 end
-  if is_there_bootable_fs <= 1 then error("There is no any bootable filesystem in computer.") end
-end
-if component.list("internet")() == nil then error("There is no internet card in computer.") end
-
-=======
->>>>>>> 9f32c5c5bb3a6b4dc3b96995fcd9206bc02c1015
 local installation
 do
   local component_invoke = component.invoke
