@@ -1,8 +1,14 @@
 do
-  local is_there_bootable_fs
-  for _, __ in component.list("filesystem") do is_there_bootable_fs = is_there_bootable_fs + 1 end
-  if is_there_bootable_fs <= 1 then error("There is no any bootable filesystem in computer.") end
+  local is_there_bootable_fs = 0 -- init local with a 0 value so the lua wont curse us for using nil
+  local fs_list = component.list("filesystem") -- for is not a guarantee for is_there_bootable_fs returning not nil
+
+  -- previous "for _, __ in component.list("filesystem")" variant was NOT returning table
+  if fs_list then -- assuming that fs_list is presented
+    for _, __ in fs_list do is_there_bootable_fs = is_there_bootable_fs + 1 end
+  end
+  if is_there_bootable_fs <= 1 then error("There is no bootable filesystem in computer.") end
 end
+
 if component.list("internet")() == nil then error("There is no internet card in computer.") end
 
 local installation
@@ -83,7 +89,7 @@ do
 
   local fs_boot_address = computer.getBootAddress()
   if not fs_boot_address then error("No boot address found.") end
-  status("Recived boot address: " .. fs_boot_address)
+  status("Received boot address: " .. fs_boot_address)
 
   clean_up_fs(fs_boot_address, "/") 
   status("Filesystem is cleaned.")
