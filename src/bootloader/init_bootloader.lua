@@ -1,11 +1,8 @@
 do
-  local is_there_bootable_fs = 0 -- init local with a 0 value so the lua wont curse us for using nil
-  local fs_list = component.list("filesystem") -- for is not a guarantee for is_there_bootable_fs returning not nil
-
-  -- previous "for _, __ in component.list("filesystem")" variant was NOT returning table
-  if fs_list then -- assuming that fs_list is presented
-    for _, __ in fs_list do is_there_bootable_fs = is_there_bootable_fs + 1 end
-  end
+  local is_there_bootable_fs = 0 -- init local with a 0 value
+  local fs_list = component.list("filesystem") -- assert not nil
+   -- assuming that fs_list is presented
+  if fs_list then for _, __ in fs_list do is_there_bootable_fs = is_there_bootable_fs + 1 end end
   if is_there_bootable_fs <= 1 then error("There is no bootable filesystem in computer.") end
 end
 
@@ -17,33 +14,26 @@ do
   local function eeprom_invoke(address, method, ...)
     local success, result = pcall(component_invoke, address, method, ...)
     if not success then return nil, result end
-
-    return result -- asserting that we returning the result only
+    return result -- assert return result only
   end
 
   local eeprom = component.list("eeprom")()
-  computer.getBootAddress = function()
-    return eeprom_invoke(eeprom, "getData")
-  end
-  computer.setBootAddress = function(address)
-    return eeprom_invoke(eeprom, "setData", address)
-  end
+  computer.getBootAddress = function() return eeprom_invoke(eeprom, "getData") end
+  computer.setBootAddress = function(address) return eeprom_invoke(eeprom, "setData", address) end
 
-  do -- bind gpu to screen
+  do
     local screen = component.list("screen")()
     local gpu = component.list("gpu")()
-    if gpu and screen then eeprom_invoke(gpu, "bind", screen)
-    else error() -- no error message because there is no gpu of screen lol
-    end
+    if gpu and screen then eeprom_invoke(gpu, "bind", screen) else error() end
   end
 
   local cursor = {1, 1}
-  local function status(text) -- status message
+  local function status(text)
     gpu.set(cursor[1], cursor[2], text)
     cursor[2] = cursor[2] + 1
   end
 
-  local function clean_up_fs(fs_boot_address, file_path) -- rm /* -rf be like:
+  local function clean_up_fs(fs_boot_address, file_path)
     local fs_proxy = component.proxy(fs_boot_address)
     if not fs_proxy then error("Failed to proxy boot address.") end
     for file in fs_proxy.list("/")
@@ -56,7 +46,7 @@ do
 
   local function download_installation(fs_boot_address)
     local internet = component.list("internet")()
-    local github_installation_address = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/kernel/installation.lua" -- change this to the github address
+    local github_installation_address = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/kernel/installation.lua"
     local internet_success, internet_handle = eeprom_invoke(internet, "request", github_installation_address)
     if not internet_success then error("Failed to request /installation.lua file from github: " .. internet_handle) end
 
@@ -72,15 +62,11 @@ do
 
   local function try_load_from(fs_boot_address)
     local handle, reason = eeprom_invoke(fs_boot_address, "open", "/installation.lua")
-    if not handle then
-      return nil, reason
-    end
+    if not handle then return nil, reason end
     local buffer = ""
     repeat
       local data, reason = eeprom_invoke(fs_boot_address, "read", handle, math.maxinteger or math.huge)
-      if not data and reason then
-        return nil, reason
-      end
+      if not data and reason then return nil, reason end
       buffer = buffer .. (data or "")
     until not data
     eeprom_invoke(fs_boot_address, "close", handle)
@@ -90,10 +76,10 @@ do
   local fs_boot_address = computer.getBootAddress()
   status("Debug: fs_boot_address = " .. tostring(fs_boot_address)) -- just to be sure
   if not fs_boot_address or type(fs_boot_address) ~= "string" then 
-    error("No valid boot address found. Got: " .. tostring(fs_boot_address)) -- properly checking computer.getBootAddress() call
+    error("No valid boot address found. Got: " .. tostring(fs_boot_address)) -- properly checking gBA call
   end
 
-  status("Received boot address: " .. tostring(fs_boot_address)) -- previously computer.getBootAddress() was returning nil/false NOT as a string; we can't concatenate string with a boolean
+  status("Received boot address: " .. tostring(fs_boot_address)) -- we can't concatenate string with a boolean; using toString()
 
   clean_up_fs(fs_boot_address, "/") 
   status("Filesystem is cleaned.")
@@ -102,9 +88,7 @@ do
   local reason
   installation, reason = try_load_from(fs_boot_address)
   if not installation
-  then
-    error("no bootable medium found" .. (reason and (": " .. tostring(reason)) or ""), 0)
-  end
+  then error("no bootable medium found" .. (reason and (": " .. tostring(reason)) or ""), 0) end
   status("Installation function is loaded.")
 end
 return installation()
