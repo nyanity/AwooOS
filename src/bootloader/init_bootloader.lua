@@ -16,15 +16,17 @@ do
     if not success then return nil, result end
     return result -- assert return result only
   end
-
   local eeprom = component.list("eeprom")()
   computer.getBootAddress = function() return eeprom_invoke(eeprom, "getData") end
   computer.setBootAddress = function(address) return eeprom_invoke(eeprom, "setData", address) end
 
   do
-    local screen = component.list("screen")()
-    local gpu = component.list("gpu")()
-    if gpu and screen then eeprom_invoke(gpu, "bind", screen) else error() end
+    local screen = next(component.list("screen") or {})
+    local gpu_address = next(component.list("gpu") or {})
+    local gpu
+    if gpu_address and screen then gpu = component.proxy(gpu_address)
+        local success, result = pcall(eeprom_invoke, gpu_address, "bind", screen)
+        if not success then error("Failed to bind GPU to screen: " .. tostring(result)) end else error("No GPU or screen found.") end
   end
 
   local cursor = {1, 1}
@@ -74,21 +76,18 @@ do
   end
 
   local fs_boot_address = computer.getBootAddress()
-
   if not fs_boot_address or type(fs_boot_address) ~= "string" then 
     error("No valid boot address found. Got: " .. tostring(fs_boot_address)) -- properly checking gBA call
   end
 
   status("Received boot address: " .. tostring(fs_boot_address))
-
   clean_up_fs(fs_boot_address, "/") 
   status("Filesystem cleaned.")
   download_installation(fs_boot_address)
   status("/installation.lua downloaded.")
   local reason
   installation, reason = try_load_from(fs_boot_address)
-  if not installation
-  then error("no bootable medium found" .. (reason and (": " .. tostring(reason)) or ""), 0) end
+  if not installation then error("no bootable medium found" .. (reason and (": " .. tostring(reason)) or ""), 0) end
   status("Installation function is loaded.")
 end
 return installation()
