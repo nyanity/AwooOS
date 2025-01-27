@@ -1,6 +1,3 @@
-local ocelot
-if component.list("ocelot")() ~= nil then ocelot = component.proxy(component.list("ocelot")()) end
-local log = ocelot.log
 local installation
 do
   local component_invoke = component.invoke

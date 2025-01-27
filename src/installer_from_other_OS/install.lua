@@ -1,9 +1,12 @@
 do
-  local supportedOS = {"OpenOS"}
-  for _, os in ipairs(supportedOS) do if string.find(_G._OSVERSION, os) ~= nil then return end end
-  print("The AwooOS installer doesn't support this OS.")
-  print("Supported OS: " .. table.concat(supportedOS, ", "))
-  return
+  local supportedOS, found = {"OpenOS"}, false
+  for _, os in ipairs(supportedOS) do if string.find(_G._OSVERSION, os) ~= nil then found = true break end end
+  if not found
+  then
+    print("The AwooOS installer doesn't support this OS.")
+    print("Supported OS: " .. table.concat(supportedOS, ", "))
+    return
+  end
 end
 
 local component = require("component")
