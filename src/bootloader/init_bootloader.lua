@@ -1,62 +1,100 @@
-local fsCount=0
-for a in pairs(component.list("filesystem") or {}) do fsCount=fsCount+1 end
-if fsCount<=1 then error("no fs") end
-if not component.list("internet")() then error("no inet") end
-
-local eepromAddr=component.list("eeprom")()
-local function e(a,...) local ok,res=pcall(component.invoke,eepromAddr,a,...) if not ok then return nil,res end return res end
-computer.getBootAddress=function() return e("getData") end
-computer.setBootAddress=function(a) return e("setData",a) end
-
-local gpuAddr=next(component.list("gpu") or {})
-local scrAddr=next(component.list("screen") or {})
-if not gpuAddr or not scrAddr then error("no gpu") end
-assert(pcall(component.invoke,gpuAddr,"bind",scrAddr))
-
-local function clean(fs,p)
-  if not fs or type(fs.list)~="function" then error("bad fs") end
-  if p:sub(-1)~="/" then p=p.."/" end
-  local f=fs.list(p) if not f then error("lf") end
-  for i=1,#f do
-    local fp=p..f[i]
-    if fs.isDirectory(fp) then clean(fs,fp.."/") end
-    fs.remove(fp)
-  end
+do
+  local is_there_bootable_fs = 0
+  for _, __ in component.list("filesystem") do is_there_bootable_fs = is_there_bootable_fs + 1 end
+  if is_there_bootable_fs <= 1 then error("There is no any bootable filesystem in computer.") end
 end
+if component.list("internet")() == nil then error("There is no internet card in computer.") end
 
-local function getInstaller(fs)
-  local i=component.list("internet")()
-  local h=e("request","https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/kernel/installation.lua")
-  if not h then error("req") end
-  local fh=fs.open("/installation.lua","w") if not fh then error("open") end
-  while true do
-    local c=h.read()
-    if not c then break end
-    fh.write(c)
+local installation
+do
+  local component_invoke = component.invoke
+  local function eeprom_invoke(address, method, ...) -- wrapper for pcall
+    local success, result = pcall(component_invoke, address, method, ...)
+    if not success then return nil, result
+    else return success, result
+    end
   end
-  fh.close()
-end
 
-local function tryLoad(fs)
-  local h=fs.open("/installation.lua")
-  if not h then return end
-  local b=""
-  while true do
-    local d=fs.read(h,math.huge)
-    if not d then break end
-    b=b..d
+  local eeprom = component.list("eeprom")()
+  computer.getBootAddress = function()
+    return eeprom_invoke(eeprom, "getData")
   end
-  fs.close(h)
-  return load(b,"=install")
+  computer.setBootAddress = function(address)
+    return eeprom_invoke(eeprom, "setData", address)
+  end
+
+  do -- bind gpu to screen
+    local screen = component.list("screen")()
+    local gpu = component.list("gpu")()
+    if gpu and screen then eeprom_invoke(gpu, "bind", screen)
+    else error() -- no error message because there is no gpu of screen lol
+    end
+  end
+
+  local cursor = {1, 1}
+  local function status(text) -- status message
+    gpu.set(cursor[1], cursor[2], text)
+    cursor[2] = cursor[2] + 1
+  end
+
+  local function clean_up_fs(fs_boot_address, file_path) -- rm /* -rf be like:
+    local fs_proxy = component.proxy(fs_boot_address)
+    if not fs_proxy then error("Failed to proxy boot address.") end
+    for file in fs_proxy.list("/")
+    do
+      file_path = file_path .. file
+      if fs_proxy.isDirectory(file_path) then clean_up_fs(fs_proxy, file_path) fs_proxy.remove(file_path)
+      else fs_proxy.remove(file_path) end
+    end
+  end
+
+  local function download_installation(fs_boot_address)
+    local internet = component.list("internet")()
+    local github_installation_address = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/kernel/installation.lua" -- change this to the github address
+    local internet_success, internet_handle = eeprom_invoke(internet, "request", github_installation_address)
+    if not internet_success then error("Failed to request /installation.lua file from github: " .. internet_handle) end
+
+    local file_success, file_handle = eeprom_invoke(fs_boot_address, "open", "/installation.lua", "w")
+    if not file_success then error("Failed to open /installation.lua file: " .. file_handle) end
+    while true do
+      local chunk = internet_handle.read()
+      if not chunk then break end
+      file_handle.write(chunk)
+    end 
+    file_handle:close()
+  end
+
+  local function try_load_from(fs_boot_address)
+    local handle, reason = eeprom_invoke(fs_boot_address, "open", "/installation.lua")
+    if not handle then
+      return nil, reason
+    end
+    local buffer = ""
+    repeat
+      local data, reason = eeprom_invoke(fs_boot_address, "read", handle, math.maxinteger or math.huge)
+      if not data and reason then
+        return nil, reason
+      end
+      buffer = buffer .. (data or "")
+    until not data
+    eeprom_invoke(fs_boot_address, "close", handle)
+    return load(buffer, "=installation")
+  end
+
+  local fs_boot_address = computer.getBootAddress()
+  if not fs_boot_address then error("No boot address found.") end
+  status("Recived boot address: " .. fs_boot_address)
+
+  clean_up_fs(fs_boot_address, "/") 
+  status("Filesystem is cleaned.")
+  download_installation(fs_boot_address)
+  status("/installation.lua is downloaded.")
+  local reason
+  installation, reason = try_load_from(fs_boot_address)
+  if not installation
+  then
+    error("no bootable medium found" .. (reason and (": " .. tostring(reason)) or ""), 0)
+  end
+  status("Installation function is loaded.")
 end
-
-local ba=computer.getBootAddress()
-if not ba then error("no boot addr") end
-local fs=component.proxy(ba)
-if not fs then error("fs?") end
-
-clean(fs,"/")
-getInstaller(fs)
-local inst=tryLoad(fs)
-if not inst then error("no load") end
-return inst()
+return installation()
