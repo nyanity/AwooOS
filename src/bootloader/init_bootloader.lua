@@ -1,8 +1,8 @@
 do
-  local bootfs_present = 0
+  local isBootFS = 0
   local fs_list = component.list("filesystem")
-  if fs_list then for _, __ in fs_list do bootfs_present = bootfs_present + 1 end end
-  if bootfs_present <= 1 then error("No bootable filesystem found.") end
+  if fs_list then for _, __ in fs_list do isBootFS = isBootFS + 1 end end
+  if isBootFS <= 1 then error("No bootable filesystem found.") end
 end
 
 if component.list("internet")() == nil then error("No internet card.") end
@@ -56,10 +56,10 @@ do
     local internet = component.list("internet")()
     local gh_install_addr = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/kernel/installation.lua"
     local inet_success, inet_handle = eeprom_invk(internet, "request", gh_install_addr)
-    if not inet_success then error("Failed to request /installation.lua: " .. inet_handle) end
+    if not inet_success then error("request /installation.lua fail: " .. inet_handle) end
 
     local file_success, f_handle = eeprom_invk(fs_boot_addr, "open", "/installation.lua", "w")
-    if not file_success then error("Failed to open /installation.lua: " .. f_handle) end
+    if not file_success then error("open /installation.lua fail: " .. f_handle) end
     while true do
       local chunk = inet_handle.read()
       if not chunk then break end
@@ -84,15 +84,18 @@ do
   local fs_boot_addr = computer.getBootAddress()
   if not fs_boot_addr or type(fs_boot_addr) ~= "string" then error("No valid boot address found. Got: " .. tostring(fs_boot_addr)) end
 
-  status("Received boot address: " .. tostring(fs_boot_addr))
-  __fsclean(fs_boot_addr, "/")
-  status("Filesystem cleaned.")
-  getInstaller(fs_boot_addr)
+  local fs_boot = component.proxy(fs_boot_addr)
+  if not fs_boot then error("Failed to get fs proxy for address: " .. tostring(fs_boot_addr)) end
+
+  status("boot address: " .. tostring(fs_boot_addr))
+  __fsclean(fs_boot, "/")
+  status("fs cleaned.")
+  getInstaller(fs_boot)
   status("/installation.lua downloaded.")
   local reason
-  installation, reason = __tryload(fs_boot_addr)
+  installation, reason = __tryload(fs_boot)
   if not installation then error("no bootable medium found" .. (reason and (": " .. tostring(reason)) or ""), 0) end
-  status("Installation function is loaded.")
+  status("Installation loaded.")
 end
 
 return installation()
