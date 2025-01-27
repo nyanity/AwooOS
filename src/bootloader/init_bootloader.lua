@@ -7,6 +7,7 @@ end
 if component.list("internet")() == nil then error("No interned card.") end
 
 local installation
+
 do
   local component_invoke = component.invoke
   local function eeprom_invoke(address, method, ...)
@@ -18,10 +19,10 @@ do
   computer.getBootAddress = function() return eeprom_invoke(eeprom, "getData") end
   computer.setBootAddress = function(address) return eeprom_invoke(eeprom, "setData", address) end
 
+  local gpu
   do
     local screen = next(component.list("screen") or {})
     local gpu_addr = next(component.list("gpu") or {})
-    local gpu
     if gpu_addr and screen then gpu = component.proxy(gpu_addr)
         local success, result = pcall(eeprom_invoke, gpu_addr, "bind", screen)
         if not success then error("GPU bind fail: " .. tostring(result)) end else error("Nor GPU/screen found.") end
