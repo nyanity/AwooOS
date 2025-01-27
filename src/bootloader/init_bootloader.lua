@@ -14,11 +14,11 @@ if component.list("internet")() == nil then error("There is no internet card in 
 local installation
 do
   local component_invoke = component.invoke
-  local function eeprom_invoke(address, method, ...) -- wrapper for pcall
+  local function eeprom_invoke(address, method, ...)
     local success, result = pcall(component_invoke, address, method, ...)
-    if not success then return nil, result
-    else return success, result
-    end
+    if not success then return nil, result end
+
+    return result -- asserting that we returning the result only
   end
 
   local eeprom = component.list("eeprom")()
@@ -88,8 +88,12 @@ do
   end
 
   local fs_boot_address = computer.getBootAddress()
-  if not fs_boot_address then error("No boot address found.") end
-  status("Received boot address: " .. fs_boot_address)
+  status("Debug: fs_boot_address = " .. tostring(fs_boot_address)) -- just to be sure
+  if not fs_boot_address or type(fs_boot_address) ~= "string" then 
+    error("No valid boot address found. Got: " .. tostring(fs_boot_address)) -- properly checking computer.getBootAddress() call
+  end
+
+  status("Received boot address: " .. tostring(fs_boot_address)) -- previously computer.getBootAddress() was returning nil/false NOT as a string; we can't concatenate string with a boolean
 
   clean_up_fs(fs_boot_address, "/") 
   status("Filesystem is cleaned.")
