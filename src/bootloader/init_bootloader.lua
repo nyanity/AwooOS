@@ -3,10 +3,10 @@ do
   local fs_list = component.list("filesystem") -- assert not nil
    -- assuming that fs_list is presented
   if fs_list then for _, __ in fs_list do is_there_bootable_fs = is_there_bootable_fs + 1 end end
-  if is_there_bootable_fs <= 1 then error("There is no bootable filesystem in computer.") end
+  if is_there_bootable_fs <= 1 then error("No bootable filesystem found.") end
 end
 
-if component.list("internet")() == nil then error("There is no internet card in computer.") end
+if component.list("internet")() == nil then error("No interned card.") end
 
 local installation
 do
@@ -48,10 +48,10 @@ do
     local internet = component.list("internet")()
     local github_installation_address = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/kernel/installation.lua"
     local internet_success, internet_handle = eeprom_invoke(internet, "request", github_installation_address)
-    if not internet_success then error("Failed to request /installation.lua file from github: " .. internet_handle) end
+    if not internet_success then error("Failed to request /installation.lua: " .. internet_handle) end
 
     local file_success, file_handle = eeprom_invoke(fs_boot_address, "open", "/installation.lua", "w")
-    if not file_success then error("Failed to open /installation.lua file: " .. file_handle) end
+    if not file_success then error("Failed to open /installation.lua: " .. file_handle) end
     while true do
       local chunk = internet_handle.read()
       if not chunk then break end
@@ -74,17 +74,17 @@ do
   end
 
   local fs_boot_address = computer.getBootAddress()
-  status("Debug: fs_boot_address = " .. tostring(fs_boot_address)) -- just to be sure
+
   if not fs_boot_address or type(fs_boot_address) ~= "string" then 
     error("No valid boot address found. Got: " .. tostring(fs_boot_address)) -- properly checking gBA call
   end
 
-  status("Received boot address: " .. tostring(fs_boot_address)) -- we can't concatenate string with a boolean; using toString()
+  status("Received boot address: " .. tostring(fs_boot_address))
 
   clean_up_fs(fs_boot_address, "/") 
-  status("Filesystem is cleaned.")
+  status("Filesystem cleaned.")
   download_installation(fs_boot_address)
-  status("/installation.lua is downloaded.")
+  status("/installation.lua downloaded.")
   local reason
   installation, reason = try_load_from(fs_boot_address)
   if not installation
