@@ -198,5 +198,9 @@ end)
 coroutine.resume(firstProcess)
 
 while true do
-  local sig = {computer.pullSignal(0.1)}
+    print("Resuming coroutine", coroutine.running())
+    coroutine.yield()
+    print("Resumed coroutine", coroutine.running())
+    local event = {computer.pullSignal(0.1)}
+    coroutine.yield()
 end
