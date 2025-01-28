@@ -28,27 +28,27 @@ end
 
 local function loadFromDisk(path, env)
     local fsAddress
-    repeat
-    fsAddress = component.list("filesystem")()
-    if not fsAddress then
-        computer.pullSignal(0.5)  -- or 0.5
-    end
+        repeat
+            fsAddress = component.list("filesystem")()
+        if not fsAddress then
+            computer.pullSignal(0.5)  -- or 0.5
+        end
     until fsAddress
     assert(fsAddress, "No filesystem component found!")
   
     local fs = component.proxy(fsAddress)
     local handle, err = fs.open(path, "r")
     if not handle then
-      error("Failed to open file '" .. path .. "': " .. tostring(err))
+        error("Failed to open file '" .. path .. "': " .. tostring(err))
     end
   
     local data = ""
     while true do
-      local chunk = fs.read(handle, math.huge)
-      if not chunk then
-        break
-      end
-      data = data .. chunk
+        local chunk = fs.read(handle, math.huge)
+        if not chunk then
+            break
+        end
+        data = data .. chunk
     end
     fs.close(handle)
   
@@ -118,12 +118,12 @@ function pipes.read(name)
     return data
 end
 
-setmetatable(Ring3, { __index = function(t, k) error("Access denied: " .. k) end })
+setmetatable(Ring3, { __index = _G })
 setmetatable(Ring2, { __index = Ring1 }) 
 setmetatable(Ring0, { __index = function(t, k) return _G[k] end })
 
 local function loadFileFromDisk(path, env)
-    -- Find the first filesystem component (thanks gpt for useless function).
+    -- find the first filesystem component (thanks gpt for useless code. i'll hold it here :))
     local fsAddress = component.list("filesystem")()
     assert(fsAddress, "No filesystem found to load " .. tostring(path))
   
