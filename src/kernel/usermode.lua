@@ -1,4 +1,5 @@
 -- usermode.lua
+gpu.set(1, 2, "Hello from usermode!")
 
 local shell_path = "/usr/shell.lua"
 if filesystem[shell_path] then

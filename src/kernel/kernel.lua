@@ -1,5 +1,3 @@
--- cock-- kernel.lua
-
 local component = component
 local computer = computer
 
@@ -10,6 +8,8 @@ local keyboard = component.list("keyboard")()
 keyboard = component.proxy(keyboard)
 
 local function init(Ring0, Ring1, Ring2, Ring3)
+  gpu.fill(1, 1, 160, 50, " ")
+  gpu.set(1, 1, "Kernel loaded successfully!")
   -- make the kernel table available in all rings
   _G.kernel = Ring0
   _G.syscall = Ring1.syscalls
@@ -340,6 +340,8 @@ local function init(Ring0, Ring1, Ring2, Ring3)
     local os_version = _G._OSVERSION
     syscall[0x80](1, 1, "OS Version: " .. os_version)
   ]]
+  computer.beep(1000, 0.2)
+  gpu.set(1,1,"Got into boot script")
 end
 
 return {

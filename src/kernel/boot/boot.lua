@@ -31,7 +31,7 @@ local function loadFromDisk(path, env)
     repeat
     fsAddress = component.list("filesystem")()
     if not fsAddress then
-        computer.pullSignal(10000)  -- or 0.5
+        computer.pullSignal(0.5)  -- or 0.5
     end
     until fsAddress
     assert(fsAddress, "No filesystem component found!")
