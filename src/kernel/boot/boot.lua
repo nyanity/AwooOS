@@ -1,5 +1,5 @@
-local component = component
-local computer = computer
+_G.component = component
+_G.computer = computer
 
 _G._OSVERSION = "AwooOS 0.1"
 
@@ -12,24 +12,47 @@ gpu.fill(1, 1, 160, 50, " ")
 local filesystem = {}
 
 local function customRequire(path, env)
-    if filesystem[path] then
-      local func, err = load(filesystem[path], path, "t", env)
-        if func then
-            for k, v in pairs(env) do
-                func = function(...)
-                return (function(k,v,...)
-                    rawset(env, k, v)
-                    return func(...)
-                    end)(k,v,...)
-                end
-            end
+  if filesystem[path] then
+    local func, err = load(filesystem[path], path, "t", env)
+    if func then
         return func()
-        else
-            error("Error loading module '" .. path .. "': " .. err)
-        end
     else
-      error("Module not found: " .. path)
+        assert(func, "Error loading module '" .. path .. "': " .. tostring(err))
+        return func()
     end
+  else
+    error("Module not found: " .. path)
+  end
+end
+
+
+local function loadFromDisk(path, env)
+    local fsAddress
+    repeat
+    fsAddress = component.list("filesystem")()
+    if not fsAddress then
+        computer.pullSignal(10000)  -- or 0.5
+    end
+    until fsAddress
+    assert(fsAddress, "No filesystem component found!")
+  
+    local fs = component.proxy(fsAddress)
+    local handle, err = fs.open(path, "r")
+    if not handle then
+      error("Failed to open file '" .. path .. "': " .. tostring(err))
+    end
+  
+    local data = ""
+    while true do
+      local chunk = fs.read(handle, math.huge)
+      if not chunk then
+        break
+      end
+      data = data .. chunk
+    end
+    fs.close(handle)
+  
+    return load(data, "=" .. path, "t", env)
 end
 
 -- ring environments
@@ -99,13 +122,36 @@ setmetatable(Ring3, { __index = function(t, k) error("Access denied: " .. k) end
 setmetatable(Ring2, { __index = Ring1 }) 
 setmetatable(Ring0, { __index = function(t, k) return _G[k] end })
 
-filesystem["/kernel.lua"] = [[
-
-]]
-
-filesystem["/usermode.lua"] = [[
-
-]]
+local function loadFileFromDisk(path, env)
+    -- Find the first filesystem component (or however you prefer).
+    local fsAddress = component.list("filesystem")()
+    assert(fsAddress, "No filesystem found to load " .. tostring(path))
+  
+    local handle, openErr = component.invoke(fsAddress, "open", path, "r")
+    if not handle then
+      error("Could not open " .. path .. ": " .. tostring(openErr))
+    end
+  
+    local data = ""
+    while true do
+      local chunk = component.invoke(fsAddress, "read", handle, math.huge)
+      if not chunk then
+        break
+      end
+      data = data .. chunk
+    end
+  
+    component.invoke(fsAddress, "close", handle)
+  
+    -- 'load' the Lua chunk in the given 'env' (environment/table).
+    local fn, loadErr = load(data, "="..path, "t", env)
+    if not fn then
+      error("Error loading file " .. path .. ": " .. tostring(loadErr))
+    end
+  
+    return fn  -- Return the loaded chunk (function)
+end
+  
 
 filesystem["/lib/require.lua"] = [[
   return function(path, env)
@@ -188,19 +234,17 @@ filesystem["/lib/filesystem.lua"] = [[
 _G.filesystem = customRequire("/lib/filesystem.lua", _G)
 _G.require    = customRequire("/lib/require.lua", _G)
 
-local kernel_module = customRequire("/kernel.lua", Ring0)
-
-kernel_module.init(Ring0, Ring1, Ring2, Ring3)
+local chunk = loadFileFromDisk("/kernel.lua", Ring0)
+local kernelModule = chunk()
+kernelModule.init(Ring0, Ring1, Ring2, Ring3)
 
 local firstProcess = coroutine.create(function()
-  customRequire("/usermode.lua", Ring3)
-end)
+    -- load usermode
+    local usermodeModule = loadFileFromDisk("/usermode.lua", Ring3)
+    usermodeModule()  -- run it
+  end)
 coroutine.resume(firstProcess)
 
 while true do
-    print("Resuming coroutine", coroutine.running())
-    coroutine.yield()
-    print("Resumed coroutine", coroutine.running())
-    local event = {computer.pullSignal(0.1)}
-    coroutine.yield()
+  local sig = {computer.pullSignal(0.1)}
 end
