@@ -123,7 +123,7 @@ setmetatable(Ring2, { __index = Ring1 })
 setmetatable(Ring0, { __index = function(t, k) return _G[k] end })
 
 local function loadFileFromDisk(path, env)
-    -- Find the first filesystem component (or however you prefer).
+    -- Find the first filesystem component (thanks gpt for useless function).
     local fsAddress = component.list("filesystem")()
     assert(fsAddress, "No filesystem found to load " .. tostring(path))
   
@@ -149,7 +149,7 @@ local function loadFileFromDisk(path, env)
       error("Error loading file " .. path .. ": " .. tostring(loadErr))
     end
   
-    return fn  -- Return the loaded chunk (function)
+    return fn  -- return the loaded chunk (function)
 end
   
 
