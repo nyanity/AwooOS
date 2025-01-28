@@ -12,16 +12,24 @@ gpu.fill(1, 1, 160, 50, " ")
 local filesystem = {}
 
 local function customRequire(path, env)
-  if filesystem[path] then
-    local func, err = load(filesystem[path], path, "t", env)
-    if func then
-      return func()
+    if filesystem[path] then
+      local func, err = load(filesystem[path], path, "t", env)
+        if func then
+            for k, v in pairs(env) do
+                func = function(...)
+                return (function(k,v,...)
+                    rawset(env, k, v)
+                    return func(...)
+                    end)(k,v,...)
+                end
+            end
+        return func()
+        else
+            error("Error loading module '" .. path .. "': " .. err)
+        end
     else
-      error("Error loading module '" .. path .. "': " .. err)
+      error("Module not found: " .. path)
     end
-  else
-    error("Module not found: " .. path)
-  end
 end
 
 -- ring environments
