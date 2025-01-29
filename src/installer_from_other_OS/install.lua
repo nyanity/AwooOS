@@ -10,7 +10,6 @@ do
 end
 
 local component = require("component")
-local fs = require("filesystem")
 local computer = require("computer")
 local internet = require("internet")
 

@@ -4,7 +4,7 @@ do
   local function eeprom_invoke(address, method, ...)
     local success, result = pcall(component_invoke, address, method, ...)
     if not success then return nil, result
-    else return success, result
+    else return result
     end
   end
 
@@ -25,15 +25,15 @@ do
   end
   
   local function try_load_from(fs_boot_address)
-    local reason, handle = eeprom_invoke(fs_boot_address, "open", "/boot/boot.lua")
-    if not reason then
-      return nil, reason
+    local handle, err = eeprom_invoke(fs_boot_address, "open", "/boot/boot.lua")
+    if not handle then
+      return nil, err
     end
     local buffer = ""
     repeat
-      local reason, data = eeprom_invoke(fs_boot_address, "read", handle, math.maxinteger or math.huge)
-      if not reason then
-        return nil, reason
+      local data, err = eeprom_invoke(fs_boot_address, "read", handle, math.maxinteger or math.huge)
+      if err ~= nil then
+        return nil, err
       end
       buffer = buffer .. (data or "")
     until not data
@@ -42,12 +42,12 @@ do
   end
   
   -- get boot address
-  local sucess, bt_addr = computer.getBootAddress()
-  if not sucess then error("No boot address found: " .. bt_addr) end
+  local bt_addr, err = computer.getBootAddress()
+  if bt_addr == nil then error("No boot address found: " .. err) end
   
   local reason
   boot, reason = try_load_from(bt_addr)
-  if not boot
+  if boot == nil
   then
     error("no bootable medium found" .. (reason and (": " .. tostring(reason)) or ""), 0)
   end

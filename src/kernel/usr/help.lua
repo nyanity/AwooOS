@@ -1,0 +1,1 @@
+syscall[0x80](1, 12, "help command")
