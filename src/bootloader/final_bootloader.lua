@@ -32,7 +32,7 @@ do
     local buffer = ""
     repeat
       local data, err = eeprom_invoke(fs_boot_address, "read", handle, math.maxinteger or math.huge)
-      if err ~= nil then
+      if not err then
         return nil, err
       end
       buffer = buffer .. (data or "")
