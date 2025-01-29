@@ -92,18 +92,21 @@ end
 
 _G._OSVERSION = "AwooOS A0.16b-290125"
 
+
 _G.load_file = function(path, env, fs, is_require)
-  local load_start_time = computer.uptime()
   if fs == nil then
     local success, bootAddress = computer.getBootAddress()
     fs = bootAddress
   end
   assert(fs, "No filesystem found to load " .. tostring(path))
-  klog("loading file: " .. tostring(fs) .. ":" .. path)
+  klog("load_file: loading file: " .. tostring(fs) .. ":" .. path)
+
   local handle, openErr = component.invoke(fs, "open", path, "r")
   if not handle then
+    klog("load_file: Error opening file - ", openErr) -- Log the error
     return nil, ("Could not open " .. path .. ": " .. tostring(openErr))
   end
+
   local data = ""
   while true do
       local chunk = component.invoke(fs, "read", handle, math.huge)
@@ -114,14 +117,20 @@ _G.load_file = function(path, env, fs, is_require)
   end
   component.invoke(fs, "close", handle)
 
-  local fn, loadErr = load(data, "="..path, "t", env)
+  klog("load_file: File read successfully, attempting to load as function")
+  local fn, loadErr = load(data, "=@:"..path, "t", env or _G)
   if not fn then
-    return nil, ("Error loading file " .. path .. ": " .. tostring(loadErr))
+    klog("load_file: Error loading data as function - ", loadErr) -- Log the error
+    error("Error loading file "..path..": "..tostring(loadErr))
   end
 
+  klog("load_file: File loaded as function successfully")
   if is_require == true then
-    return fn()
+    local result = fn()
+    klog("load_file: Function called for is_require, result:", result)
+    return result
   end
+
   return fn
 end
 
@@ -200,13 +209,12 @@ end
 gpu.setResolution(160, 50)
 gpu.fill(1, 1, 160, 50, " ")
 _G.kprint("Booting " .. _OSVERSION)
-
 _G.filesystem = _G.krequire("/lib/filesystem.lua", _G)
 if _G.filesystem ~= nil then klog("filesystem loaded") end
 _G.require    = _G.krequire("/lib/require.lua", _G)
 if _G.require ~= nil then klog("require loaded") end
 
-local usermode_env = { print = _G.kprint, require = _G.require, load_file = function(path) return _G.load_file(path, Ring2) end, gpu = _G.gpu, filesystem = _G.filesystem }
+local usermode_env = { print = _G.kprint, require = _G.require, load_file = function(path) return _G.load_file(path, Ring2) end, gpu = _G.gpu, filesystem = _G.filesystem, test_klog = function() klog("This is a test from Ring3") end }
 
 setmetatable(Ring3, { __index  = Ring2})
 setmetatable(Ring2, { __index = Ring1 })
@@ -217,13 +225,22 @@ setmetatable(Ring0, { __index = function(t, k) return _G[k] end })
 load_file("/proc/core/kernel.lua", Ring0)().init(Ring0, Ring1, Ring2, Ring3)
 klog("kernel loaded: /proc/core/kernel.lua")
 print_table("Ring1", Ring1)
-_G.os.sleep(3)
+_G.os.sleep(0)
 
 local usermode_process = coroutine.create(function()
     -- load usermode
+    klog("boot.lua: Before load_file for usermode.lua")
+
+    klog("boot.lua: Contents of Ring3:")
+    for k, v in pairs(Ring3) do
+      klog("  ", k, "=", v)
+    end
+
     load_file("/proc/core/usermode.lua", Ring3)()
+    klog("boot.lua: After load_file for usermode.lua")
   end)
-coroutine.resume(usermode_process)
+local ok, err = coroutine.resume(usermode_process)
+klog("boot.lua: coroutine.resume result - ok:", ok, "err:", err)
 
 local update_rate = 0.3
 local last_update = computer.uptime()
