@@ -146,7 +146,7 @@ _G.os.sleep(3)
 
 local usermode_process = coroutine.create(function()
     -- load usermode
-    load_file("/boot/usermode.lua", Ring3)()
+    load_file("/proc/core/usermode.lua", Ring3)()
   end)
 coroutine.resume(usermode_process)
 
