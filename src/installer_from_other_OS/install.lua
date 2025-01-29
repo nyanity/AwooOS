@@ -15,7 +15,7 @@ local internet = require("internet")
 
 -- init bootloader table
 local init_btldr = {
-  addr = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/bootloader/init_bootloader.lua",
+  addr = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/bootloader/init_bootloader.lua",
   data = ""
 }
 

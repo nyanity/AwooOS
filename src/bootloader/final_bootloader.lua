@@ -1,10 +1,11 @@
 local boot
 do
-  local component_invoke = component.invoke
   local function eeprom_invoke(address, method, ...)
-    local success, result = pcall(component_invoke, address, method, ...)
-    if not success then return nil, result
-    else return result
+    local result = table.pack(pcall(component.invoke, address, method, ...))
+    if not result[1] then
+      return nil, result[2]
+    else
+      return table.unpack(result, 2, result.n)
     end
   end
 
@@ -13,7 +14,7 @@ do
     return eeprom_invoke(eeprom, "getData")
   end
   computer.setBootAddress = function(address)
-    return eeprom_invoke(eeprom, "setData", address)
+    eeprom_invoke(eeprom, "setData", address)
   end
   
   do
@@ -32,7 +33,7 @@ do
     local buffer = ""
     repeat
       local data, err = eeprom_invoke(fs_boot_address, "read", handle, math.maxinteger or math.huge)
-      if not err then
+      if not data and err then
         return nil, err
       end
       buffer = buffer .. (data or "")
@@ -41,13 +42,12 @@ do
     return load(buffer, "=boot")
   end
   
-  -- get boot address
   local bt_addr, err = computer.getBootAddress()
-  if bt_addr == nil then error("No boot address found: " .. err) end
+  if not bt_addr then error("No boot address found: " .. err) end
   
   local reason
   boot, reason = try_load_from(bt_addr)
-  if boot == nil
+  if not boot
   then
     error("no bootable medium found" .. (reason and (": " .. tostring(reason)) or ""), 0)
   end

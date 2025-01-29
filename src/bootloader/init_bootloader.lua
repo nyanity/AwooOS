@@ -1,10 +1,11 @@
 local installation
 do
-  local component_invoke = component.invoke
   local function eeprom_invoke(address, method, ...)
-    local success, result = pcall(component_invoke, address, method, ...)
-    if not success then return nil, result
-    else return result
+    local result = table.pack(pcall(component.invoke, address, method, ...))
+    if not result[1] then
+      return nil, result[2]
+    else
+      return table.unpack(result, 2, result.n)
     end
   end
 
@@ -13,7 +14,7 @@ do
     return eeprom_invoke(eeprom, "getData")
   end
   computer.setBootAddress = function(address)
-    return eeprom_invoke(eeprom, "setData", address)
+    eeprom_invoke(eeprom, "setData", address)
   end
 
   do
@@ -49,7 +50,7 @@ do
     local buffer = ""
     repeat
       local data, err = eeprom_invoke(fs_boot_address, "read", handle, math.maxinteger or math.huge)
-      if not err then
+      if not data and err then
         return nil, err
       end
       buffer = buffer .. (data or "")
@@ -83,8 +84,7 @@ do
   end
   local write, err = eeprom_invoke(bt_addr, "write", handle, installation_data)
   if not write then error("Failed to write to /installation.lua file: " .. err) end
-  local close, err = eeprom_invoke(bt_addr, "close", handle)
-  if not close then error("Failed to close /installation.lua file: " .. err) end
+  eeprom_invoke(bt_addr, "close", handle)
 
   local reason
   installation, reason = try_load_from(bt_addr)

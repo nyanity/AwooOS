@@ -1,12 +1,17 @@
 do
-  local component_invoke = component.invoke
-
   local function pinvoke(address, method, ...)
-    local ok, result = pcall(component_invoke, address, method, ...)
-    if not ok then
-      return nil, result
+    local result = table.pack(pcall(component.invoke, address, method, ...))
+    if not result[1] then
+      return nil, result[2]
+    else
+      return table.unpack(result, 2, result.n)
     end
-    return result
+  end
+
+  local gset, cursor_y = component.proxy(component.list("gpu")()).set, 1
+  local function status(text)
+    gset(1, cursor_y, text)
+    cursor_y = cursor_y + 1
   end
 
   local bt_addr, err = computer.getBootAddress()
@@ -20,10 +25,11 @@ do
     if not ok then
       error("Failed to create directory '" .. directory .. "': " .. tostring(err))
     end
+    status("Created directory '" .. directory .. "'")
   end
 
   local os_files = {
-    ["final_bootloader"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/bootloader/",
+    ["final_bootloader.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/bootloader/",
 
     ["/boot/boot.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/kernel/",
     ["/boot/boot_reserved.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/kernel/",
@@ -51,23 +57,22 @@ do
       error("Failed to request " .. url .. ": " .. tostring(err))
     end
 
-    if path == "final_bootloader" then
+    if path == "final_bootloader.lua" then
       local final_data = ""
       while true do
         local chunk = request.read()
         if not chunk then break end
         final_data = final_data .. chunk
       end
+      status("Downloaded final bootloader")
 
       local eeprom = component.list("eeprom")()
       if not eeprom then
         error("No EEPROM found to write final bootloader!")
       end
 
-      local set, err = pinvoke(eeprom, "set", final_data)
-      if not set then
-          error("Failed to write EEPROM: " .. tostring(err))
-      end
+      pinvoke(eeprom, "set", final_data)
+      status("Wrote final bootloader to EEPROM")
 
       computer.setBootAddress(bt_addr)
     else
@@ -75,20 +80,19 @@ do
       if not handle then
           error("Failed to open '" .. path .. "' for writing: " .. tostring(err))
       end
+      status("Opened '" .. path .. "' for writing")
 
       while true do
-        local chunk = handle.read()
+        local chunk = request.read()
         if not chunk then break end
         local write, err = pinvoke(bt_addr, "write", handle, chunk)
         if not write then
           error("Failed to write to '" .. path .. "': " .. tostring(err))
         end
       end
+      status("Wrote to '" .. path .. "'")
 
-      local close, err = pinvoke(bt_addr, "close", handle)
-      if not close then
-          error("Failed to close '" .. path .. "': " .. tostring(err))
-      end
+      pinvoke(bt_addr, "close", handle)
     end
   end
 
@@ -96,4 +100,5 @@ do
   if not remove then
       error("Failed to remove /installation.lua: " .. tostring(err))
   end
+  status("Installation completed")
 end
