@@ -1,10 +1,19 @@
--- why?
 if component.list("ocelot")() ~= nil then
   _G.log = component.proxy(component.list("ocelot")()).log
 end
----------------------------------------------------------------
-_G.gpu = component.proxy(component.list("gpu")())           -- global?
+
+_G.gpu = component.proxy(component.list("gpu")())
 _G.keyboard = component.proxy(component.list("keyboard")())
+
+-- ======================================================================================
+-- ======================================================================================
+-- ======================================================================================
+_G.bootlog = ""
+local BOOT_START_TIME = computer.uptime()
+local MAX_BOOT_TIME = 20
+local last_watchdog_reset = BOOT_START_TIME
+local watchdog_enabled = true
+local watchdog_timeout = 10
 
 _G.kprint_y = 0
 _G.kprint = function(text)
@@ -21,15 +30,76 @@ _G.kprint = function(text)
   end
   _G.kprint_y = _G.kprint_y + y_offset
 end
+-----------------------------
+_G.klog = function(...)
+  local args = { ... }
+  local log_message = ""
 
-_G._OSVERSION = "AwooOS A0.16b-290125" -- how much time we were on fucking 0.1?
+  for i, v in ipairs(args) do
+    if type(v) == "table" then
+      log_message = log_message .. table_to_string(v)
+    else
+      log_message = log_message .. tostring(v)
+    end
+    if i < #args then
+      log_message = log_message .. " " -- Add space between arguments
+    end
+  end
+
+  local timestamp = string.format("%.2f", computer.uptime() - BOOT_START_TIME)
+  log_message = "[" .. timestamp .. "] " .. log_message
+  _G.bootlog = _G.bootlog .. log_message
+  if log then
+    log(log_message)
+  end
+  kprint(log_message)
+end
+
+_G.reset_watchdog = function()
+  last_watchdog_reset = computer.uptime()
+  klog("Watchdog timer reset")
+end
+
+_G.check_watchdog = function()
+  if watchdog_enabled and (computer.uptime() - last_watchdog_reset > watchdog_timeout) then
+    klog("Watchdog timeout! Rebooting...")
+    _G.filesystem.open(log_file, "a"):write("Watchdog timeout! Rebooting...\n"):close()
+    computer.shutdown(true)
+  end
+end
+
+_G.table_to_string = function(tbl, indent)
+  if type(tbl) ~= "table" then return tostring(tbl) end
+
+  indent = indent or 0 local result = {}
+
+  for key, value in pairs(tbl) do local key_str = string.format("%s[%s]", string.rep(" ", indent), tostring(key))
+    if type(value) == "table" then table.insert(result, key_str .. ":") table.insert(result, table_to_string(value, indent + 2))
+    else table.insert(result, string.format("%s = %s", key_str, tostring(value))) end
+  end
+  return table.concat(result, "\n")
+end
+
+
+_G.print_table = function(name, tbl)
+  klog(tostring(name) .. ":") if type(tbl) ~= "table" then klog("  " .. tostring(tbl)) return end local formatted_table = table_to_string(tbl) for line in formatted_table:gmatch("[^\r\n]+") do  klog("  " .. line)  end
+end
+
+
+-- ======================================================================================
+-- ======================================================================================
+-- ======================================================================================
+
+_G._OSVERSION = "AwooOS A0.16b-290125"
 
 _G.load_file = function(path, env, fs, is_require)
+  local load_start_time = computer.uptime()
   if fs == nil then
-    fs = computer.getBootAddress()
+    local success, bootAddress = computer.getBootAddress()
+    fs = bootAddress
   end
   assert(fs, "No filesystem found to load " .. tostring(path))
-
+  klog("loading file: " .. tostring(fs) .. ":" .. path)
   local handle, openErr = component.invoke(fs, "open", path, "r")
   if not handle then
     return nil, ("Could not open " .. path .. ": " .. tostring(openErr))
@@ -50,10 +120,11 @@ _G.load_file = function(path, env, fs, is_require)
   end
 
   if is_require == true then
-    return fn() -- RUST????????
+    return fn()
   end
   return fn
 end
+
 _G.krequire = function(path, env, fs)
   return _G.load_file(path, env, fs, true)
 end
@@ -128,28 +199,24 @@ end
 
 gpu.setResolution(160, 50)
 gpu.fill(1, 1, 160, 50, " ")
--- > we have "_G._OSVERSION"
--- > we explicitelly set it to global
--- > ...
--- > ???
--- >> AwooOS 0.1 booting...
-_G.kprint("AwooOS 0.1 booting...")
+_G.kprint("Booting " .. _OSVERSION)
 
 _G.filesystem = _G.krequire("/lib/filesystem.lua", _G)
-if _G.filesystem ~= nil then _G.kprint("Filesystem loaded.") end
+if _G.filesystem ~= nil then klog("filesystem loaded") end
 _G.require    = _G.krequire("/lib/require.lua", _G)
-if _G.require ~= nil then _G.kprint("Require loaded.") end
+if _G.require ~= nil then klog("require loaded") end
 
 local usermode_env = { print = _G.kprint, require = _G.require, load_file = function(path) return _G.load_file(path, Ring2) end, gpu = _G.gpu, filesystem = _G.filesystem }
 
-setmetatable(Ring3, { __index  = Ring2}) -- JW3U98YT GW47u8y9thq3W89FEQWH8F9QWE WTF IS THAT TAB???????
-setmetatable(Ring2, { __index = Ring1 }) -- WHY THE TAB NORMAL HERE?
-setmetatable(Ring1, { __index = Ring0 }) -- AND HERE??
-setmetatable(Ring0, { __index = function(t, k) return _G[k] end }) -- AND HERE??? AND WHY DO YOU HAVE "  = Ring2" BUT NOT "= Ring2" ABOVE??????????
+setmetatable(Ring3, { __index  = Ring2})
+setmetatable(Ring2, { __index = Ring1 })
+setmetatable(Ring1, { __index = Ring0 })
+setmetatable(Ring0, { __index = function(t, k) return _G[k] end })
 
 
 load_file("/proc/core/kernel.lua", Ring0)().init(Ring0, Ring1, Ring2, Ring3)
-_G.kprint("Kernel loaded.")
+klog("kernel loaded: /proc/core/kernel.lua")
+print_table("Ring1", Ring1)
 _G.os.sleep(3)
 
 local usermode_process = coroutine.create(function()

@@ -4,13 +4,14 @@ local gpu = gpu
 local keyboard = keyboard
 
 local function init(Ring0, Ring1, Ring2, Ring3)
-  kprint("Kernel loaded successfully!")
-  kprint("Got into boot script")
-  kprint("Keyboard address = " .. tostring(_G.keyboard.address))
+  klog("init(): kernel loaded")
+  klog("init(): got into boot script")
+  klog("init(): keyboard address = " .. tostring(_G.keyboard.address))
   
   _G.kernel = Ring0
   _G.syscall = Ring1.syscalls
   _G.pipes = Ring1.pipes
+  --print_table(Ring1.pipes)
 
   computer.beep(1000, 0.2)
   Ring1.syscalls[0x80] = function(x, y, text)
