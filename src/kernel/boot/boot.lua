@@ -1,7 +1,9 @@
+-- why?
 if component.list("ocelot")() ~= nil then
   _G.log = component.proxy(component.list("ocelot")()).log
 end
-_G.gpu = component.proxy(component.list("gpu")())
+---------------------------------------------------------------
+_G.gpu = component.proxy(component.list("gpu")())           -- global?
 _G.keyboard = component.proxy(component.list("keyboard")())
 
 _G.kprint_y = 0
@@ -20,7 +22,7 @@ _G.kprint = function(text)
   _G.kprint_y = _G.kprint_y + y_offset
 end
 
-_G._OSVERSION = "AwooOS 0.1"
+_G._OSVERSION = "AwooOS A0.16b-290125" -- how much time we were on fucking 0.1?
 
 _G.load_file = function(path, env, fs, is_require)
   if fs == nil then
@@ -48,7 +50,7 @@ _G.load_file = function(path, env, fs, is_require)
   end
 
   if is_require == true then
-    return fn()
+    return fn() -- RUST????????
   end
   return fn
 end
@@ -126,6 +128,11 @@ end
 
 gpu.setResolution(160, 50)
 gpu.fill(1, 1, 160, 50, " ")
+-- > we have "_G._OSVERSION"
+-- > we explicitelly set it to global
+-- > ...
+-- > ???
+-- >> AwooOS 0.1 booting...
 _G.kprint("AwooOS 0.1 booting...")
 
 _G.filesystem = _G.krequire("/lib/filesystem.lua", _G)
@@ -135,10 +142,11 @@ if _G.require ~= nil then _G.kprint("Require loaded.") end
 
 local usermode_env = { print = _G.kprint, require = _G.require, load_file = function(path) return _G.load_file(path, Ring2) end, gpu = _G.gpu, filesystem = _G.filesystem }
 
-setmetatable(Ring3, { __index  = Ring2})
-setmetatable(Ring2, { __index = Ring1 })
-setmetatable(Ring1, { __index = Ring0 })
-setmetatable(Ring0, { __index = function(t, k) return _G[k] end })
+setmetatable(Ring3, { __index  = Ring2}) -- JW3U98YT GW47u8y9thq3W89FEQWH8F9QWE WTF IS THAT TAB???????
+setmetatable(Ring2, { __index = Ring1 }) -- WHY THE TAB NORMAL HERE?
+setmetatable(Ring1, { __index = Ring0 }) -- AND HERE??
+setmetatable(Ring0, { __index = function(t, k) return _G[k] end }) -- AND HERE??? AND WHY DO YOU HAVE "  = Ring2" BUT NOT "= Ring2" ABOVE??????????
+
 
 load_file("/proc/core/kernel.lua", Ring0)().init(Ring0, Ring1, Ring2, Ring3)
 _G.kprint("Kernel loaded.")
