@@ -35,7 +35,6 @@ local password = "awoo"
           return "Invalid command: " .. tostring(command)
         end
       end
-      filesystem["/usr/su.lua"] = ""
       local function execute_kernel_command(command)
         return execute_command(command)
       end

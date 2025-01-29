@@ -32,13 +32,11 @@ do
     do
       local full_path = file_path .. path
 
-      local is_directory, err = eeprom_invoke(bt_addr, "isDirectory", full_path)
-      if not is_directory then error("Failed to get isDirectory in path:" .. full_path .. ": " .. err) end
+      local is_directory = eeprom_invoke(bt_addr, "isDirectory", full_path)
 
       if is_directory then __fsclean(bt_addr, full_path) end
 
-      local remove, err = eeprom_invoke(bt_addr, "remove", full_path)
-      if not remove then error("Failed to remove file in path: " .. full_path .. ": " .. err) end
+      eeprom_invoke(bt_addr, "remove", full_path)
     end
   end
 
