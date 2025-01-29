@@ -30,7 +30,7 @@ _G.load_file = function(path, env, fs, is_require)
 
   local handle, openErr = component.invoke(fs, "open", path, "r")
   if not handle then
-    error("Could not open " .. path .. ": " .. tostring(openErr))
+    return nil, ("Could not open " .. path .. ": " .. tostring(openErr))
   end
   local data = ""
   while true do
@@ -44,7 +44,7 @@ _G.load_file = function(path, env, fs, is_require)
 
   local fn, loadErr = load(data, "="..path, "t", env)
   if not fn then
-    error("Error loading file " .. path .. ": " .. tostring(loadErr))
+    return nil, ("Error loading file " .. path .. ": " .. tostring(loadErr))
   end
 
   if is_require == true then
@@ -140,7 +140,7 @@ setmetatable(Ring2, { __index = Ring1 })
 setmetatable(Ring1, { __index = Ring0 })
 setmetatable(Ring0, { __index = function(t, k) return _G[k] end })
 
-load_file("/boot/kernel.lua", Ring0)().init(Ring0, Ring1, Ring2, Ring3)
+load_file("/proc/core/kernel.lua", Ring0)().init(Ring0, Ring1, Ring2, Ring3)
 _G.kprint("Kernel loaded.")
 _G.os.sleep(3)
 
