@@ -160,6 +160,9 @@ local Ring3 = {} -- user
 local syscalls = {}
 Ring1.syscalls = syscalls
 
+local syscalls_aliases = {}
+Ring1.syscalls_aliases = syscalls_aliases
+
 local pipes = {}
 Ring1.pipes = pipes
 
