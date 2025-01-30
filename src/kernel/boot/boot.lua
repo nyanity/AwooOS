@@ -95,7 +95,7 @@ _G._OSVERSION = "AwooOS A0.16b-290125"
 
 _G.load_file = function(path, env, fs, is_require)
   if fs == nil then
-    local success, bootAddress = computer.getBootAddress()
+    local bootAddress, err = computer.getBootAddress()
     fs = bootAddress
   end
   assert(fs, "No filesystem found to load " .. tostring(path))
@@ -138,9 +138,17 @@ _G.krequire = function(path, env, fs)
   return _G.load_file(path, env, fs, true)
 end
 
-_G.os.sleep = function(time)
+_G.os.sleep = function(time, push_back_signals)
+  if push_back_signals == nil then push_back_signals = false end
   local start = computer.uptime()
-  while computer.uptime() < start + time do end
+  while computer.uptime() < start + time
+  do
+    computer.pushSignal("sleep")
+    local signal_pack = table.pack(computer.pullSignal())
+    if signal_pack[1] ~= "sleep" and push_back_signals then
+      computer.pushSignal(table.unpack(signal_pack)) -- Signals that appeared during sleep need to be push back into the queue
+    end
+  end
 end
 
 -- ring environments
@@ -216,11 +224,10 @@ if _G.require ~= nil then klog("require loaded") end
 
 local usermode_env = { print = _G.kprint, require = _G.require, load_file = function(path) return _G.load_file(path, Ring2) end, gpu = _G.gpu, filesystem = _G.filesystem, test_klog = function() klog("This is a test from Ring3") end }
 
-setmetatable(Ring3, { __index  = Ring2})
+setmetatable(Ring3, { __index = Ring2 })
 setmetatable(Ring2, { __index = Ring1 })
 setmetatable(Ring1, { __index = Ring0 })
 setmetatable(Ring0, { __index = function(t, k) return _G[k] end })
-
 
 load_file("/proc/core/kernel.lua", Ring0)().init(Ring0, Ring1, Ring2, Ring3)
 klog("kernel loaded: /proc/core/kernel.lua")
@@ -242,10 +249,6 @@ local usermode_process = coroutine.create(function()
 local ok, err = coroutine.resume(usermode_process)
 klog("boot.lua: coroutine.resume result - ok:", ok, "err:", err)
 
-local update_rate = 0.3
-local last_update = computer.uptime()
 while true do
-  while computer.uptime() < last_update + update_rate do end
-  last_update = computer.uptime()
-  computer.pullSignal()
+  _G.os.sleep(1)
 end

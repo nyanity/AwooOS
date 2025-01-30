@@ -162,3 +162,5 @@ local function shellMain()
       klog("shellMain: Exiting main loop, shellState.running =", shellState.running)
       return shellMain
 end
+
+shellMain()

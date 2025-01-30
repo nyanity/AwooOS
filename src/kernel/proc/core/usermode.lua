@@ -8,7 +8,6 @@ local shell_func, load_err = load_file(shell_path)
 
 if shell_func then
     klog("usermode.lua: shell loaded successfully")
-
     -- create a coroutine from shellMain
     klog("usermode.lua: Creating shell coroutine")
     local shell_co = coroutine.create(shell_func)
@@ -16,6 +15,7 @@ if shell_func then
     klog("usermode.lua: Value of shell_func:", shell_func)  -- Add this line
 
     klog("usermode.lua: Resuming shell coroutine for the first time")
+    gpu.fill(1,1,160,50, " ") -- clear the screen from kprint messages
     local ok, err = coroutine.resume(shell_co)
     klog("usermode.lua: Shell coroutine resumed, ok:", ok, "err:", err)
 
@@ -27,6 +27,7 @@ if shell_func then
         klog("usermode.lua: About to enter while loop, status:", coroutine.status(shell_co))
         
         while coroutine.status(shell_co) ~= "dead" do
+            coroutine.resume(shell_co)
             klog("usermode.lua: shell status:", coroutine.status(shell_co))
             os.sleep(0.1)  -- small delay to prevent busy-waiting
         end
