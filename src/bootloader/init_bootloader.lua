@@ -119,7 +119,7 @@ cpcall(bt_addr, "close", handle)
 err = get_last_error()
 if err then error("Failed to close /installation.lua file: " .. err) end
 
-local installation = try_load_from(bt_addr)
+local installation = load_from(bt_addr)
 err = get_last_error()
 if err then error("Failed to load from boot address: " .. err) end
 
