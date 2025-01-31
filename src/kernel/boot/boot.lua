@@ -2,8 +2,12 @@ if component.list("ocelot")() ~= nil then
   _G.log = component.proxy(component.list("ocelot")()).log
 end
 
-_G.gpu = component.proxy(component.list("gpu")())
-_G.keyboard = component.proxy(component.list("keyboard")())
+if component.list("gpu")() ~= nil then
+  _G.gpu = component.proxy(component.list("gpu")())
+end
+if component.list("keyboard") ~= nil then
+  _G.keyboard = component.proxy(component.list("keyboard")())
+end
 
 -- ======================================================================================
 -- ======================================================================================
@@ -95,8 +99,7 @@ _G._OSVERSION = "AwooOS A0.16b-290125"
 
 _G.load_file = function(path, env, fs, is_require)
   if fs == nil then
-    local bootAddress, err = computer.getBootAddress()
-    fs = bootAddress
+    fs = computer.getBootAddress()
   end
   assert(fs, "No filesystem found to load " .. tostring(path))
   klog("load_file: loading file: " .. tostring(fs) .. ":" .. path)
