@@ -1,6 +1,6 @@
 _G.last_error = { error_msg = nil }
 _G.cpcall = function(address, method, ...) -- component proctected call
-  local err = _G.pcall_last_error
+  local err = _G.last_error
   local result = table.pack(pcall(component.invoke, address, method, ...))
   if not result[1] then
     err.error_msg = result[2]
@@ -10,9 +10,9 @@ _G.cpcall = function(address, method, ...) -- component proctected call
     return table.unpack(result, 2, result.n)
   end
 end
-_G.fpcall = function(function, ...) -- function protected call
-  local err = _G.pcall_last_error
-  local result = table.pack(pcall(function, ...))
+_G.fpcall = function(func, ...) -- function protected call
+  local err = _G.last_error
+  local result = table.pack(pcall(func, ...))
   if not result[1] then
     err.error_msg = result[2]
     return nil
