@@ -1,4 +1,5 @@
 local status = function(...) end
+local cursor_y = 1
 do
   local gpu = component.list("gpu")()
   if cpcall(gpu, "getScreen") ~= nil

@@ -69,7 +69,7 @@ local function fs_clean(bt_addr, file_path)
 end
 
 local function load_from(fs_addr)
-  local handle = cpcall(fs_addr, "open", "/boot/boot.lua")
+  local handle = cpcall(fs_addr, "open", "/installation.lua")
   if not handle then return nil end
 
   local buffer = ""
