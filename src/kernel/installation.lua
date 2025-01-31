@@ -25,21 +25,21 @@ for _, directory in ipairs(directories) do
 end
 
 local os_files = {
-  ["final_bootloader.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/bootloader/",
+  ["final_bootloader.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/dev/src/bootloader/",
 
-  ["/boot/boot.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/kernel/",
-  ["/boot/boot_reserved.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/kernel/",
+  ["/boot/boot.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/dev/src/kernel/",
 
-  ["/bin/shell.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/kernel/",
-  ["/bin/su_shell_reversed.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/kernel/",
+  ["/bin/shell.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/dev/src/kernel/",
 
-  ["lib/filesystem.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/kernel/",
-  ["lib/require.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/kernel/",
+  ["lib/filesystem.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/dev/src/kernel/",
+  ["lib/require.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/dev/src/kernel/",
+  ["lib/sha256.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/dev/src/kernel/",
 
-  ["proc/core/kernel.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/kernel/",
-  ["proc/core/usermode.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/kernel/",
+  ["proc/core/kernel.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/dev/src/kernel/",
+  ["proc/core/usermode.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/dev/src/kernel/",
+  ["proc/core/pipes.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/dev/src/kernel/",
 
-  ["usr/help.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/kernel/",
+  ["usr/help.lua"] = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/dev/src/kernel/",
 }
 
 local internet = component.list("internet")()

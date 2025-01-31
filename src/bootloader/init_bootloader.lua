@@ -95,7 +95,7 @@ fs_clean(bt_addr, "/")
 
 -- download installation
 local internet = component.list("internet")()
-local instal_addr = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/kerneltest/src/kernel/installation.lua"
+local instal_addr = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/dev/src/kernel/installation.lua"
 local request = cpcall(internet, "request", instal_addr)
 err = get_last_error()
 if err then error("Failed to request installation.lua from github: " .. err) end
