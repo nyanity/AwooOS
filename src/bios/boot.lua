@@ -1,5 +1,5 @@
-local oRawComponent = require("component")
-local oRawComputer = require("computer")
+local oRawComponent = component -- no require here, we're in the bare metal BIOS!
+local oRawComputer = computer   -- same deal, it's a global from the get-go.
 
 oRawComputer.beep(800, 0.1) -- a little beep to say "i'm alive!"
 
