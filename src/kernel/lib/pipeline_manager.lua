@@ -140,7 +140,7 @@ local function load_driver(component_type, address)
   
   k_syscall("kernel_log", "[Ring 1] Loading driver " .. driver_path .. " for " .. address)
   
-  local pid, err = k_syscall("process_spawn", driver_path, 2, {
+  local dummy, pid, err = k_syscall("process_spawn", driver_path, 2, {
     address = address
   })
   

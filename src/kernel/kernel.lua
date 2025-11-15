@@ -301,6 +301,7 @@ function kernel.create_process(sPath, nRing, nParentPid, tPassEnv)
   local co = coroutine.create(function()
     -- this pcall is our last line of defense against rogue processes
     local bOk, sErr = pcall(fFunc)
+    kprint("Process " .. nPid .. " exited.")
     if not bOk then
       -- process went belly-up
       kernel.syscall_dispatch("tty_write", "\nProcess " .. nPid .. " crashed: " .. tostring(sErr))
