@@ -1,134 +1,116 @@
-local oRawComponent = component -- no require here, we're in the bare metal BIOS!
-local oRawComputer = computer   -- same deal, it's a global from the get-go.
-
-oRawComputer.beep(800, 0.1) -- a little beep to say "i'm alive!"
-
--- try to find a screen so we're not booting blind.
+-- BIOS. Bare metal. No `require`, just raw power.
+computer.beep(800, 0.1) -- boot beep.
 local sGpuAddress
-local sTtyAddress
+local sScreenAddress
 
-for sAddr, sCompType in oRawComponent.list("gpu") do
-  sGpuAddress = sAddr
-  break
-end
-for sAddr, sCompType in oRawComponent.list("screen") do
-  sTtyAddress = sAddr
-  break
-end
+-- find a screen, don't fly blind.
+for sAddr in component.list("gpu") do sGpuAddress = sAddr; break end
+for sAddr in component.list("screen") do sScreenAddress = sAddr; break end
 
-local oGpu
-local oTty
-
--- a super primitive print function for BIOS messages.
-local function print(sText)
-  if not sText then sText = "nil" end -- because printing actual nil is a no-go.
-  if oTty and oGpu then
-    oGpu.set(1, 1, tostring(sText))
+local oGpu -- gpu proxy object
+-- primitive print for boot screen.
+local function print(nY, sText)
+  if oGpu then
+    oGpu.fill(1, nY, 160, 1, " ")
+    oGpu.set(1, nY, tostring(sText or "nil"))
   end
 end
 
 -- clear screen.
 local function cls()
-  if oTty and oGpu then
-    oGpu.fill(1, 1, 160, 50, " ")
-  end
+  if oGpu then oGpu.fill(1, 1, 160, 50, " ") end
 end
 
-if sGpuAddress and sTtyAddress then
-  oGpu = oRawComponent.proxy(sGpuAddress)
-  oTty = oRawComponent.proxy(sTtyAddress)
-  pcall(oGpu.bind, sTtyAddress)
-  cls()
-  print("AuraOS BIOS v0.1")
-  oGpu.set(1, 2, "Scanning for bootable drives...")
+if sGpuAddress and sScreenAddress then
+  oGpu = component.proxy(sGpuAddress)
+  local bOk, sReason = pcall(oGpu.bind, sScreenAddress) -- pcall, screen might be weird.
+  if not bOk then
+    oGpu = nil -- no gpu for us. sad.
+    computer.beep(500, 0.5)
+  else
+    cls()
+    print(1, "AwooOS BIOS v0.2NV25RC00 (Bare-metal)")
+    print(2, "Scanning for bootable drives...")
+  end
 else
-  -- no screen? well, this is awkward. beep and hope for the best.
-  oRawComputer.beep(500, 0.5)
+  computer.beep(500, 0.5) -- beep of solitude.
 end
 
 local sBootFsAddress = nil
 local sKernelCode = nil
 
--- let's go hunting for a bootable drive.
-for sAddr, sCompType in oRawComponent.list("filesystem") do
-  if sBootFsAddress then break end
-  
-  local oFs = oRawComponent.proxy(sAddr)
+-- hunt for a kernel.
+for sAddr in component.list("filesystem") do
+  if sBootFsAddress then break end -- already found one.
+  local oFs = component.proxy(sAddr)
   if oFs.exists("/kernel.lua") then
-    -- jackpot! found a kernel.
-    oGpu.set(1, 3, "Found kernel on " .. sAddr)
+    print(3, "Found kernel on " .. sAddr:sub(1, 13) .. "...")
     local hFile, sReason = oFs.open("/kernel.lua", "r")
     if hFile then
       local sBuffer = ""
       while true do
-        -- slurp the whole file into a string. memory is cheap, right?
-        local sChunk, sReadReason = oFs.read(hFile, math.huge)
-        if not sChunk then
-          break -- EOF or error
-        end
+        local sChunk = oFs.read(hFile, math.huge) -- slurp the whole thing.
+        if not sChunk then break end
         sBuffer = sBuffer .. sChunk
       end
       oFs.close(hFile)
-      
       sKernelCode = sBuffer
       sBootFsAddress = sAddr
-      oGpu.set(1, 4, "Kernel loaded (" .. #sKernelCode .. " bytes).")
+      print(4, "Kernel loaded (" .. #sKernelCode .. " bytes).")
     else
-      -- the universe is cruel. the file is there but we can't open it.
-      oGpu.set(1, 4, "Found kernel, but failed to open: " .. tostring(sReason))
+      print(4, "Kernel found, but can't open: " .. tostring(sReason)) -- cruel.
     end
   end
 end
 
 if sKernelCode then
-  -- we have a kernel! time to prep for launch.
-  -- create a clean, pristine environment for the kernel. no pollution from us.
+  -- dreaded UTF-8 BOM. some editors love it. we don't. begone.
+  local sBom = string.char(239, 187, 191)
+  if sKernelCode:sub(1, 3) == sBom then
+    sKernelCode = sKernelCode:sub(4) -- strip it
+    print(4, "Kernel loaded (" .. #sKernelCode .. " bytes). BOM removed.")
+  end
+
   local tKernelEnv = {}
-  
-  -- give the kernel the raw tools it needs to take over.
-  tKernelEnv.raw_component = oRawComponent
-  tKernelEnv.raw_computer = oRawComputer
+  tKernelEnv.raw_component = component
+  tKernelEnv.raw_computer = computer
   tKernelEnv.boot_fs_address = sBootFsAddress
-  
-  -- compile the kernel code string into a function.
-  local fKernelFunc, sLoadErr = load(sKernelCode, "kernel", "t", tKernelEnv)
+  setmetatable(tKernelEnv, { __index = _G }) -- let kernel peek at _G. a little cheat.
+
+  local fKernelFunc, sLoadErr = load(sKernelCode, "kernel.lua", "t", tKernelEnv)
   
   if fKernelFunc then
-    oGpu.set(1, 5, "Executing kernel...")
-    oRawComputer.beep(1200, 0.1)
-    
-    -- this is the handoff. if this function ever returns, something is very wrong.
-    -- wrap it in a pcall. our last line of defense against an immediate kernel crash.
-    local bOk, sPanicErr = pcall(fKernelFunc)
+    print(5, "Executing kernel...")
+    computer.beep(1200, 0.1)
+
+    local bOk, sPanicErr = pcall(fKernelFunc) -- handoff. our last line of defense.
     
     if not bOk then
-      -- well, that was fast. the kernel died on takeoff.
       cls()
-      print("KERNEL PANIC")
-      oGpu.set(1, 3, "The kernel failed to initialize.")
-      oGpu.set(1, 5, tostring(sPanicErr))
-      oRawComputer.beep(400, 0.2); oRawComputer.beep(400, 0.2); oRawComputer.beep(400, 0.2)
-      -- display the BSOD for 10 seconds, then pull the plug.
-      oRawComputer.sleep(10)
-      oRawComputer.shutdown()
+      print(1, "KERNEL PANIC")
+      print(3, "The kernel failed to initialize.")
+      print(5, tostring(sPanicErr))
+      computer.beep(400, 0.2)
+      computer.shutdown()
     end
-  else
-    -- the kernel file is borked. can't even compile it.
+    -- a well-behaved kernel should never return. this is a clean halt.
     cls()
-    print("BOOT FAILED")
-    oGpu.set(1, 3, "Kernel file is corrupt and failed to load.")
-    oGpu.set(1, 5, tostring(sLoadErr))
-    oRawComputer.beep(500, 1)
-    oRawComputer.sleep(10)
-    oRawComputer.shutdown()
+    print(1, "KERNEL HALTED")
+    print(3, "Kernel returned control to BIOS. Shutting down.")
+    computer.sleep(10)
+    computer.shutdown()
+  else
+    cls()
+    print(1, "BOOT FAILED")
+    print(3, "Kernel file is corrupt.")
+    print(5, tostring(sLoadErr))
+    computer.beep(500, 1)
+    computer.shutdown()
   end
 else
-  -- couldn't find a kernel anywhere. sad beep.
   cls()
-  print("BOOT FAILED")
-  oGpu.set(1, 3, "No bootable medium found.")
-  oGpu.set(1, 4, "Insert an AuraOS-formatted drive and reboot.")
-  oRawComputer.beep(600, 0.2); oRawComputer.beep(500, 0.2); oRawComputer.beep(400, 0.2)
-  oRawComputer.sleep(10)
-  oRawComputer.shutdown()
+  print(1, "BOOT FAILED")
+  print(3, "No bootable medium found.")
+  computer.beep(600, 0.2)
+  computer.shutdown()
 end
