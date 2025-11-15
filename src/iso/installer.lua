@@ -7,7 +7,7 @@ local oGpu = oComponent.gpu -- ADDED: gotta get the gpu component for pretty col
 
 -- CONFIG: where we get the good stuff.
 -- all files are pulled from github. what could possibly go wrong?
-local sBASE_URL = "https://raw.githubusercontent.com/shorekeeper/AwooOSFork/refs/heads/master/"
+local sBASE_URL = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/v0.2N25/src/kernel/"
 local tFileList = {
   ["kernel.lua"] = sBASE_URL .. "kernel.lua",
   ["lib/pipeline_manager.lua"] = sBASE_URL .. "lib/pipeline_manager.lua",
