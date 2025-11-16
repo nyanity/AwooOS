@@ -59,7 +59,9 @@ if ok and boot_log then
 end
 
 tty.write("[Ring 2] TTY Driver initialized.\n")
+k_syscall("kernel_log", "[TTY] About to send 'driver_ready' to PID 2.")
 k_syscall("signal_send", 2, "driver_ready") 
+k_syscall("kernel_log", "[TTY] 'driver_ready' signal sent. Entering main loop.")
 
 -- Main driver loop
 while true do

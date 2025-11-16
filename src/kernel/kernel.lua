@@ -579,40 +579,45 @@ kernel.tSyscallTable["raw_component_proxy"] = {
 
 -- Signal / IPC
 kernel.syscalls.signal_send = function(nPid, nTargetPid, ...)
-  local tTarget = kernel.tProcessTable[nTargetPid]
-  if not tTarget then return nil, "Invalid PID" end
+  kprint(string.format("[KERNEL] signal_send: from PID %d to PID %d", nPid, nTargetPid))
   
-  -- right here, we add the sender's nPid as the first argument to the signal
+  local tTarget = kernel.tProcessTable[nTargetPid]
+  if not tTarget then
+    kprint("[KERNEL] signal_send: Target PID not found!")
+    return nil, "Invalid PID"
+  end
+  
   local tSignal = {nPid, ...}
   
+  kprint(string.format("[KERNEL] signal_send: Target PID %d status is '%s', wait_reason is '%s'", nTargetPid, tostring(tTarget.status), tostring(tTarget.wait_reason)))
+
   if tTarget.status == "sleeping" and tTarget.wait_reason == "signal" then
-    -- process is waiting for a signal, resume it directly
+    kprint("[KERNEL] signal_send: Waking up sleeping target.")
     tTarget.status = "running"
     local bOk, ret1, ret2 = pcall(coroutine.resume, tTarget.co, true, table.unpack(tSignal))
     if not bOk then
-      tTarget.status = "dead" -- crashed on resume
-      kernel.panic("Signal resume crash: " .. ret1)
+      kprint("[KERNEL] signal_send: CRASH ON RESUME: " .. tostring(ret1))
+      tTarget.status = "dead"
     end
     return true
   elseif tTarget.status == "sleeping" and tTarget.wait_reason == "syscall" then
-    -- process is waiting for a syscall return
-    -- the signal MUST be a syscall_return
+    kprint("[KERNEL] signal_send: Resuming target from syscall wait.")
     if tSignal[1] == "syscall_return" then
       tTarget.status = "running"
       local bOk, ret1, ret2 = pcall(coroutine.resume, tTarget.co, true, table.unpack(tSignal, 2))
       if not bOk then
         tTarget.status = "dead"
-        kernel.panic("Syscall resume crash: " .. ret1)
+        kprint("[KERNEL] signal_send: Syscall resume crash: " .. ret1)
       end
       return true
     else
-      -- trying to send a normal signal to a process in a syscall.
-      -- this is complex. for now, queue it?
-      -- nah, let's just reject it.
-      return nil, "Process is in syscall wait"
+      kprint("[KERNEL] signal_send: Cannot send normal signal to process in syscall wait. Queueing.")
+      if not tTarget.signal_queue then tTarget.signal_queue = {} end
+      table.insert(tTarget.signal_queue, tSignal)
+      return true
     end
   else
-    -- process is running or ready, queue the signal
+    kprint("[KERNEL] signal_send: Target is not sleeping for a signal, queueing signal.")
     if not tTarget.signal_queue then tTarget.signal_queue = {} end
     table.insert(tTarget.signal_queue, tSignal)
     return true
