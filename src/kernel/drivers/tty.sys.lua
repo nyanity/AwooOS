@@ -55,12 +55,16 @@ function tty.write(text)
   end
 end
 
+--[[
+
 local ok, boot_log = k_syscall("kernel_get_boot_log")
 if ok and boot_log then
   tty.write(boot_log .. "\n")
 end
 tty.write("[Ring 2] TTY Driver initialized.\n")
 k_syscall("kernel_log", "[TTY] Screen initialized. Entering main loop.")
+
+--]]
 
 while true do
   local syscall_ok, sender_pid, sig_name, p1, p2, p3, p4 = k_syscall("signal_pull")

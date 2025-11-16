@@ -420,15 +420,26 @@ kernel.tSyscallTable["kernel_panic"] = {
   func = function(nPid, sReason) kernel.panic(sReason) end,
   allowed_rings = {0}
 }
+
 -- NEW SYSCALL
 kernel.tSyscallTable["kernel_yield"] = {
     func = function() return coroutine.yield() end,
     allowed_rings = {0, 1, 2, 2.5, 3} -- 2.5? what is this, windows 98?
 }
+
+kernel.tSyscallTable["kernel_host_yield"] = {
+  func = function()
+    computer.pullSignal(0)
+    return true
+  end,
+  allowed_rings = {0, 1} 
+}
+
 kernel.tSyscallTable["kernel_register_pipeline"] = {
   func = function(nPid) kernel.nPipelinePid = nPid end,
   allowed_rings = {0, 1}
 }
+
 kernel.tSyscallTable["kernel_register_driver"] = {
   func = function(nPid, sComponentType, nHandlerPid)
     if not kernel.tDriverRegistry[sComponentType] then
@@ -438,13 +449,13 @@ kernel.tSyscallTable["kernel_register_driver"] = {
   end,
   allowed_rings = {1} -- only pipeline can register drivers
 }
+
 kernel.tSyscallTable["kernel_map_component"] = {
   func = function(nPid, sAddress, nDriverPid)
     kernel.tComponentDriverMap[sAddress] = nDriverPid
   end,
   allowed_rings = {1}
 }
-
 
 kernel.tSyscallTable["kernel_get_root_fs"] = {
   func = function(nPid)
@@ -727,7 +738,7 @@ while true do
       
       local bOk, err_or_sig_name
       if resume_params then
-        -- kprint(string.format("SCHEDULER: Resuming PID %d with signal args.", nPid))
+        --kprint(string.format("SCHEDULER: Resuming PID %d with signal args.", nPid))
         bOk, err_or_sig_name = coroutine.resume(tProcess.co, true, table.unpack(resume_params))
       else
         bOk, err_or_sig_name = coroutine.resume(tProcess.co)
