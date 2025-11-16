@@ -587,7 +587,7 @@ kernel.tSyscallTable["raw_component_proxy"] = {
 -- ipc
 kernel.syscalls.signal_send = function(nPid, nTargetPid, ...)
   local signal_args = {...}
-  kprint(string.format("SIGNAL SEND: From PID %d to PID %d. Name: %s", nPid, nTargetPid, tostring(signal_args[1])))
+  -- kprint(string.format("SIGNAL SEND: From PID %d to PID %d. Name: %s", nPid, nTargetPid, tostring(signal_args[1])))
 
   local tTarget = kernel.tProcessTable[nTargetPid]
   if not tTarget then return nil, "Invalid PID" end
@@ -727,7 +727,7 @@ while true do
       
       local bOk, err_or_sig_name
       if resume_params then
-        kprint(string.format("SCHEDULER: Resuming PID %d with signal args.", nPid))
+        -- kprint(string.format("SCHEDULER: Resuming PID %d with signal args.", nPid))
         bOk, err_or_sig_name = coroutine.resume(tProcess.co, true, table.unpack(resume_params))
       else
         bOk, err_or_sig_name = coroutine.resume(tProcess.co)

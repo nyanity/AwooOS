@@ -3,6 +3,8 @@ local fs = require("filesystem")
 local hStdin = fs.open("/dev/tty", "r")
 local hStdout = fs.open("/dev/tty", "w")
 
+print("[INIT] hStdout created. FD is: " .. tostring(hStdout and hStdout.fd))
+
 local function write(sText)
   fs.write(hStdout, sText)
 end
@@ -22,14 +24,11 @@ local function load_passwd()
   local hFile, sErr = fs.open("/etc/passwd.lua", "r")
   if not hFile then
     write("FATAL: Cannot open /etc/passwd.lua: " .. sErr .. "\n")
-    return nil -- Возвращаем nil, чтобы показать ошибку
+    return nil
   end
   local sCode = fs.read(hFile)
   fs.close(hFile)
   
-  -- >>> НАЧАЛО ИЗМЕНЕНИЙ
-  -- Если файл пустой или произошла ошибка чтения, sCode будет nil.
-  -- В этом случае мы просто возвращаем пустую таблицу пользователей.
   if not sCode or sCode == "" then
     return {}
   end
@@ -39,7 +38,6 @@ local function load_passwd()
       write("FATAL: Syntax error in /etc/passwd.lua: " .. tostring(err) .. "\n")
       return nil
   end
-  -- <<< КОНЕЦ ИЗМЕНЕНИЙ
 
   return fFunc()
 end
