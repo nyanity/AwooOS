@@ -75,7 +75,7 @@ function vfs.syscall_read(sender_pid, fd, count)
   
   if handle.type == "tty" then
     k_syscall("signal_send", drivers.tty_pid, "tty_read", sender_pid)
-    return
+    return "async_wait"
     
   elseif handle.type == "file" then
     local syscall_ok, pcall_ok, data_or_err = k_syscall("raw_component_invoke", handle.proxy.address, "read", handle.oc_handle, count or math.huge)
@@ -243,45 +243,34 @@ print("[Ring 1] Entering main pipeline event loop...")
 -- Main Pipeline Event Loop
 -------------------------------------------------
 while true do
-  -- k_syscall("kernel_log", "[PM] Looping, now waiting for signal...")
-  local syscall_ok, signal_ok, sender_pid, sig_name, p1, p2, p3, p4 = k_syscall("signal_pull")
+  local syscall_ok, pull_ok, sender_pid, sig_name, p1, p2, p3, p4 = k_syscall("signal_pull")
   
-  if syscall_ok and signal_ok then
+  if syscall_ok and pull_ok then
     --k_syscall("kernel_log", string.format("[PM] Woke up! Received signal. Sender: %s, Name: %s", tostring(sender_pid), tostring(sig_name)))
-   if sig_name == "syscall" then
+   -- /lib/pipeline_manager.lua
+
+    if sig_name == "syscall" then
       local data = p1
       local syscall_name = data.name
       local args = data.args
       local original_sender_pid = data.sender_pid
       
-      -- k_syscall("kernel_log", string.format("[PM] Handling syscall '%s' from PID %s", syscall_name, original_sender_pid))
-
-      local short_name = string.sub(syscall_name, 5) 
+      local short_name = string.sub(syscall_name, 5)
       local handler = vfs["syscall_" .. short_name]
 
       if handler then
           local response = {pcall(handler, original_sender_pid, table.unpack(args))}
           local ret_ok = table.remove(response, 1)
-
-      local should_reply_immediately = true
-
-      if syscall_name == "vfs_read" then
-          local fd = args[1]
-          local handle = vfs.open_handles[original_sender_pid] and vfs.open_handles[original_sender_pid][fd]
-          if handle and handle.type == "tty" then
-              should_reply_immediately = false
-          end
-      end
-
-      if should_reply_immediately then
-          if ret_ok then
-              k_syscall("signal_send", original_sender_pid, "syscall_return", true, table.unpack(response))
+          
+          if response[1] == "async_wait" then
           else
-              k_syscall("signal_send", original_sender_pid, "syscall_return", false, response[1])
+            if ret_ok then
+                k_syscall("signal_send", original_sender_pid, "syscall_return", true, table.unpack(response))
+            else
+                k_syscall("signal_send", original_sender_pid, "syscall_return", false, response[1])
+            end
           end
-      end
       else
-          k_syscall("kernel_log", string.format("[PM] Unknown syscall handler for '%s'. Replying with error.", syscall_name))
           k_syscall("signal_send", original_sender_pid, "syscall_return", false, "Unknown VFS syscall: " .. syscall_name)
       end
       

@@ -3,11 +3,13 @@ local fs = require("filesystem")
 local hStdin = fs.open("/dev/tty", "r")
 local hStdout = fs.open("/dev/tty", "w")
 
-print("[INIT] hStdout created. FD is: " .. tostring(hStdout and hStdout.fd))
+
 
 local function write(sText)
   fs.write(hStdout, sText)
 end
+
+write("[INIT] hStdout created. FD is: " .. tostring(hStdout and hStdout.fd) .. "\n")
 
 local function read()
   -- TODO: implement secret read, rn it's just echoing. security!

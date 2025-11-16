@@ -578,7 +578,7 @@ kernel.tSyscallTable["raw_component_invoke"] = {
   func = function(nPid, sAddress, sMethod, ...)
     local oProxy = raw_component.proxy(sAddress)
     if not oProxy then return nil, "Invalid component" end
-    return pcall(oProxy[sMethod], oProxy, ...)
+    return pcall(oProxy[sMethod], ...)
   end,
   allowed_rings = {0, 1, 2} -- ring 3 CANNOT invoke directly.
 }
