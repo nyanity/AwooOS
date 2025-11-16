@@ -68,25 +68,29 @@ function vfs.syscall_open(sender_pid, path, mode)
   return fd
 end
 
+    
 function vfs.syscall_read(sender_pid, fd, count)
   local handle = vfs.open_handles[sender_pid] and vfs.open_handles[sender_pid][fd]
   if not handle then return nil, "Invalid file descriptor" end
   
   if handle.type == "tty" then
-    -- TTY read. Send IPC to TTY driver and wait.
-    k_syscall("signal_send", drivers.tty_pid, "tty_read", sender_pid, count)
-    -- This process will now sleep, waiting for the TTY driver
-    -- to send a "syscall_return" signal.
-    return k_syscall("signal_pull")
+    k_syscall("signal_send", drivers.tty_pid, "tty_read", sender_pid)
+    return
     
   elseif handle.type == "file" then
-    local ok, data, reason = k_syscall("raw_component_invoke", handle.proxy.address, "read", handle.oc_handle, count)
-    if not ok then return nil, data end -- data is error
-    return data
+    local syscall_ok, pcall_ok, data_or_err = k_syscall("raw_component_invoke", handle.proxy.address, "read", handle.oc_handle, count or math.huge)
+    if syscall_ok and pcall_ok then
+      return data_or_err
+    else
+      return nil, data_or_err
+    end
   end
 end
 
+
 function vfs.syscall_write(sender_pid, fd, data)
+  k_syscall("kernel_log", string.format("[PM VFS_WRITE] Received from PID %s for FD %s. Data: '%s'", tostring(sender_pid), tostring(fd), tostring(data)))
+
   local handle = vfs.open_handles[sender_pid] and vfs.open_handles[sender_pid][fd]
   if not handle then return nil, "Invalid file descriptor" end
 
@@ -207,7 +211,7 @@ local function scan_and_load_drivers()
     })
     if pid then
       drivers.tty_pid = pid
-      k_syscall("kernel_log", "[Ring 1] Driver tty spawned as PID " .. pid)
+      k_syscall("kernel_log", "[Ring 1] TTY driver spawned as PID " .. pid .. ". Stored in drivers.tty_pid.")
     else
       k_syscall("kernel_log", "[Ring 1] FAILED to load TTY driver: " .. err)
     end
@@ -240,34 +244,47 @@ print("[Ring 1] Entering main pipeline event loop...")
 -------------------------------------------------
 while true do
   k_syscall("kernel_log", "[PM] Looping, now waiting for signal...")
-  local ok, sender_pid, sig_name, p1, p2, p3, p4 = k_syscall("signal_pull")
+  local syscall_ok, signal_ok, sender_pid, sig_name, p1, p2, p3, p4 = k_syscall("signal_pull")
   
-  if ok then
+  if syscall_ok and signal_ok then
     k_syscall("kernel_log", string.format("[PM] Woke up! Received signal. Sender: %s, Name: %s", tostring(sender_pid), tostring(sig_name)))
-    if sig_name == "syscall" then
-      -- Это перехваченный системный вызов
+   if sig_name == "syscall" then
       local data = p1
       local syscall_name = data.name
       local args = data.args
-      local sender_pid = data.sender_pid
+      local original_sender_pid = data.sender_pid
       
-      local handler = vfs["syscall_" .. syscall_name]
+      k_syscall("kernel_log", string.format("[PM] Handling syscall '%s' from PID %s", syscall_name, original_sender_pid))
+
+      local short_name = string.sub(syscall_name, 5) 
+      local handler = vfs["syscall_" .. short_name]
+
       if handler then
-          local response = {pcall(handler, sender_pid, table.unpack(args))}
-          
+          local response = {pcall(handler, original_sender_pid, table.unpack(args))}
           local ret_ok = table.remove(response, 1)
-          if ret_ok then
-            -- Syscall succeeded, return its results
-            k_syscall("signal_send", sender_pid, "syscall_return", true, table.unpack(response))
-          else
-            -- Syscall failed, return the error
-            k_syscall("signal_send", sender_pid, "syscall_return", false, response[1])
+
+          local is_async_tty_read = false
+          if syscall_name == "vfs_read" then
+              local fd = args[1]
+              local handle = vfs.open_handles[original_sender_pid] and vfs.open_handles[original_sender_pid][fd]
+              if handle and handle.type == "tty" then
+                  is_async_tty_read = true
+              end
+          end
+
+          if not is_async_tty_read then
+              if ret_ok then
+                  k_syscall("signal_send", original_sender_pid, "syscall_return", true, table.unpack(response))
+              else
+                  k_syscall("signal_send", original_sender_pid, "syscall_return", false, response[1])
+              end
           end
       else
-          k_syscall("signal_send", sender_pid, "syscall_return", false, "Unknown VFS syscall: " .. syscall_name)
+          k_syscall("kernel_log", string.format("[PM] Unknown syscall handler for '%s'. Replying with error.", syscall_name))
+          k_syscall("signal_send", original_sender_pid, "syscall_return", false, "Unknown VFS syscall: " .. syscall_name)
       end
       
-    elseif sig_name == "os_event" then
+elseif sig_name == "os_event" then
       local event_name = p1
       if event_name == "component_added" then
         local addr = p2
@@ -276,24 +293,29 @@ while true do
         load_driver(ctype, addr)
       elseif event_name == "component_removed" then
         -- TODO: Unload driver
+
+      elseif event_name == "key_down" then
+        if drivers.tty_pid then
+          k_syscall("signal_send", drivers.tty_pid, "os_event", event_name, p2, p3, p4)
+        end
       end
 
     elseif sig_name == "driver_ready" then
         if sender_pid == drivers.tty_pid then
             state.tty_ready = true
-            k_syscall("kernel_log", "[Ring 1] TTY driver is ready.")
+            k_syscall("kernel_log", "[Ring 1] TTY driver is ready. Spawning init...")
             
             if not state.init_spawned then
                 state.init_spawned = true
-                k_syscall("kernel_log", "[Ring 1] Spawning Ring 3 init...")
                 local ok_spawn, init_pid, err = k_syscall("process_spawn", "/bin/init.lua", 3)
                 if not ok_spawn then
                   k_syscall("kernel_log", "[Ring 1] FATAL: Could not spawn /bin/init.lua: " .. err)
                   k_syscall("kernel_panic", "Init spawn failed: " .. tostring(err))
                 end
             end
+        else
+            k_syscall("kernel_log", string.format("[PM] Ignored 'driver_ready' from PID %s because drivers.tty_pid is %s", tostring(sender_pid), tostring(drivers.tty_pid)))
         end
     end
   end
-  k_syscall("process_yield")
 end

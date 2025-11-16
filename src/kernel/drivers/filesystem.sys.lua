@@ -1,13 +1,10 @@
 local k_syscall = syscall
-local my_address = env.address
+local ok, my_pid = k_syscall("process_get_pid")
+if not ok then my_pid = "UNKNOWN" end
 
--- This driver is simple because the Pipeline (Ring 1)
--- is already doing raw_component_invoke on the FS.
--- If we wanted full VFS, the pipeline would send
--- IPC messages here instead.
--- For this design, this driver is mostly a stub.
+-- ...
 
-k_syscall("signal_send", 2, "driver_ready", k_syscall("process_get_ring"))
+k_syscall("signal_send", 2, "driver_ready", my_pid)
 
 while true do
   local ok, sig = k_syscall("signal_pull")

@@ -48,6 +48,7 @@ local function direct_gpu_print(sText)
     pcall(oGpu.bind, sScreenAddr)
     
     -- slap the sText onto the screen
+    pcall(oGpu.fill, 1, nDebugY, 160, 1, " ")
     pcall(oGpu.set, 1, nDebugY, tostring(sText))
     
     -- move the cursor down
@@ -254,8 +255,9 @@ function kernel.create_sandbox(nPid, nRing)
       for i = 1, select("#", ...) do
         tParts[i] = tostring(select(i, ...))
       end
-      kernel.syscall_dispatch("tty_write", table.concat(tParts, "\t"))
-    end
+      -- Правильно: пишем в stdout (fd=1) через VFS
+      kernel.syscall_dispatch("vfs_write", 1, table.concat(tParts, "\t") .. "\n")
+    end,
   }
   
   -- ring 0 (kernel) gets the god-mode cheats
@@ -458,11 +460,10 @@ kernel.tSyscallTable["kernel_get_root_fs"] = {
 
 kernel.tSyscallTable["kernel_log"] = {
   func = function(nPid, sMessage)
-    -- we just use the existing kprint function. easy.
     kprint(tostring(sMessage))
     return true
   end,
-  allowed_rings = {0, 1} -- let the kernel and pipeline manager write to the log
+  allowed_rings = {0, 1, 2} -- let the kernel, pipeline manager, AND DRIVERS write to the log
 }
 
 kernel.tSyscallTable["kernel_get_boot_log"] = {
@@ -544,6 +545,13 @@ kernel.tSyscallTable["process_get_ring"] = {
   allowed_rings = {0, 1, 2, 2.5, 3}
 }
 
+kernel.tSyscallTable["process_get_pid"] = {
+  func = function(nPid)
+    return nPid -- just return it
+  end,
+  allowed_rings = {0, 1, 2, 2.5, 3}
+}
+
 -- Raw Component (Privileged)
 kernel.tSyscallTable["raw_component_list"] = {
   func = function(nPid, sFilter)
@@ -576,11 +584,11 @@ kernel.tSyscallTable["raw_component_proxy"] = {
   end,
   allowed_rings = {0, 1, 2} -- allow drivers (ring 2) to get proxies.
 }
-
--- Signal / IPC
--- kernel.lua
-
+-- ipc
 kernel.syscalls.signal_send = function(nPid, nTargetPid, ...)
+  local signal_args = {...}
+  kprint(string.format("SIGNAL SEND: From PID %d to PID %d. Name: %s", nPid, nTargetPid, tostring(signal_args[1])))
+
   local tTarget = kernel.tProcessTable[nTargetPid]
   if not tTarget then return nil, "Invalid PID" end
   
@@ -714,16 +722,14 @@ while true do
       nCurrentPid = nPid
       tProcess.status = "running"
       
-      -- Проверяем, есть ли аргументы для возобновления (от сигнала)
       local resume_params = tProcess.resume_args
-      tProcess.resume_args = nil -- Очищаем после использования
+      tProcess.resume_args = nil
       
       local bOk, err_or_sig_name
       if resume_params then
-        -- Возобновляем с аргументами
+        kprint(string.format("SCHEDULER: Resuming PID %d with signal args.", nPid))
         bOk, err_or_sig_name = coroutine.resume(tProcess.co, true, table.unpack(resume_params))
       else
-        -- Обычное возобновление
         bOk, err_or_sig_name = coroutine.resume(tProcess.co)
       end
       
@@ -747,7 +753,7 @@ while true do
           local tWaiter = kernel.tProcessTable[nWaiterPid]
           if tWaiter and tWaiter.status == "sleeping" and tWaiter.wait_reason == "wait_pid" then
             tWaiter.status = "ready"
-            tWaiter.resume_args = {true} -- Возвращаем true из process_wait
+            tWaiter.resume_args = {true}
           end
         end
       end
