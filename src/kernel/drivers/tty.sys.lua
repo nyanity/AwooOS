@@ -63,7 +63,7 @@ tty.write("[Ring 2] TTY Driver initialized.\n")
 k_syscall("kernel_log", "[TTY] Screen initialized. Entering main loop.")
 
 while true do
-  local syscall_ok, signal_ok, pm_pid, sig_name, p1, p2 = k_syscall("signal_pull")
+  local syscall_ok, sender_pid, sig_name, p1, p2, p3, p4 = k_syscall("signal_pull")
   if syscall_ok and signal_ok then
     if sig_name == "tty_write" then
       tty.write(tostring(p2))
