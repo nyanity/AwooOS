@@ -238,12 +238,12 @@ print("[Ring 1] Entering main pipeline event loop...")
 -------------------------------------------------
 -- Main Pipeline Event Loop
 -------------------------------------------------
--- Этот цикл обрабатывает системные вызовы и события ОС.
 while true do
-  -- Ждем любой сигнал (системный вызов, событие от ОС, сигнал от другого процесса)
+  k_syscall("kernel_log", "[PM] Looping, now waiting for signal...")
   local ok, sender_pid, sig_name, p1, p2, p3, p4 = k_syscall("signal_pull")
   
   if ok then
+    k_syscall("kernel_log", string.format("[PM] Woke up! Received signal. Sender: %s, Name: %s", tostring(sender_pid), tostring(sig_name)))
     if sig_name == "syscall" then
       -- Это перехваченный системный вызов
       local data = p1
