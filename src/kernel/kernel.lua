@@ -578,50 +578,27 @@ kernel.tSyscallTable["raw_component_proxy"] = {
 }
 
 -- Signal / IPC
+-- kernel.lua
+
 kernel.syscalls.signal_send = function(nPid, nTargetPid, ...)
-  kprint(string.format("[KERNEL] signal_send: from PID %d to PID %d", nPid, nTargetPid))
-  
   local tTarget = kernel.tProcessTable[nTargetPid]
-  if not tTarget then
-    kprint("[KERNEL] signal_send: Target PID not found!")
-    return nil, "Invalid PID"
-  end
+  if not tTarget then return nil, "Invalid PID" end
   
   local tSignal = {nPid, ...}
   
-  kprint(string.format("[KERNEL] signal_send: Target PID %d status is '%s', wait_reason is '%s'", nTargetPid, tostring(tTarget.status), tostring(tTarget.wait_reason)))
-
-  if tTarget.status == "sleeping" and tTarget.wait_reason == "signal" then
-    kprint("[KERNEL] signal_send: Waking up sleeping target.")
-    tTarget.status = "running"
-    local bOk, ret1, ret2 = pcall(coroutine.resume, tTarget.co, true, table.unpack(tSignal))
-    if not bOk then
-      kprint("[KERNEL] signal_send: CRASH ON RESUME: " .. tostring(ret1))
-      tTarget.status = "dead"
-    end
-    return true
-  elseif tTarget.status == "sleeping" and tTarget.wait_reason == "syscall" then
-    kprint("[KERNEL] signal_send: Resuming target from syscall wait.")
-    if tSignal[1] == "syscall_return" then
-      tTarget.status = "running"
-      local bOk, ret1, ret2 = pcall(coroutine.resume, tTarget.co, true, table.unpack(tSignal, 2))
-      if not bOk then
-        tTarget.status = "dead"
-        kprint("[KERNEL] signal_send: Syscall resume crash: " .. ret1)
-      end
-      return true
+  if tTarget.status == "sleeping" and (tTarget.wait_reason == "signal" or tTarget.wait_reason == "syscall") then
+    tTarget.status = "ready"
+    if tTarget.wait_reason == "syscall" then
+        tTarget.resume_args = {tSignal[3], table.unpack(tSignal, 4)}
     else
-      kprint("[KERNEL] signal_send: Cannot send normal signal to process in syscall wait. Queueing.")
-      if not tTarget.signal_queue then tTarget.signal_queue = {} end
-      table.insert(tTarget.signal_queue, tSignal)
-      return true
+        tTarget.resume_args = tSignal
     end
   else
-    kprint("[KERNEL] signal_send: Target is not sleeping for a signal, queueing signal.")
     if not tTarget.signal_queue then tTarget.signal_queue = {} end
     table.insert(tTarget.signal_queue, tSignal)
-    return true
   end
+  
+  return true
 end
 
 kernel.tSyscallTable["signal_send"] = {
@@ -737,33 +714,42 @@ while true do
       nCurrentPid = nPid
       tProcess.status = "running"
       
-      -- resume the coroutine. what could go wrong?
-      local bOk, err_or_sig_name, sig_arg1, sig_arg2 = coroutine.resume(tProcess.co)
+      -- Проверяем, есть ли аргументы для возобновления (от сигнала)
+      local resume_params = tProcess.resume_args
+      tProcess.resume_args = nil -- Очищаем после использования
+      
+      local bOk, err_or_sig_name
+      if resume_params then
+        -- Возобновляем с аргументами
+        bOk, err_or_sig_name = coroutine.resume(tProcess.co, true, table.unpack(resume_params))
+      else
+        -- Обычное возобновление
+        bOk, err_or_sig_name = coroutine.resume(tProcess.co)
+      end
       
       nCurrentPid = nKPid 
       
       if not bOk then
-        -- process crashed
         tProcess.status = "dead"
-        -- tell the world about the crash
-        kprint("CRASH PID " .. nPid .. ": " .. tostring(err_or_sig_name))
+        kprint("!!! KERNEL ALERT: PROCESS " .. nPid .. " CRASHED !!!")
+        kprint("Crash reason: " .. tostring(err_or_sig_name))
       end
       
       if coroutine.status(tProcess.co) == "dead" then
-        tProcess.status = "dead"
+        if tProcess.status ~= "dead" then
+          kprint("Process " .. nPid .. " exited normally.")
+          tProcess.status = "dead"
+        end
       end
       
       if tProcess.status == "dead" then
-        -- notify waiting processes that their wait is over
         for _, nWaiterPid in ipairs(tProcess.wait_queue or {}) do
           local tWaiter = kernel.tProcessTable[nWaiterPid]
           if tWaiter and tWaiter.status == "sleeping" and tWaiter.wait_reason == "wait_pid" then
             tWaiter.status = "ready"
-            -- TODO: send resume signal or something, idk
+            tWaiter.resume_args = {true} -- Возвращаем true из process_wait
           end
         end
-        -- TODO: clean up resources (fds, etc). later.
-        -- for now, just mark as dead.
       end
     end
   end

@@ -264,12 +264,10 @@ while true do
             k_syscall("signal_send", sender_pid, "syscall_return", false, response[1])
           end
       else
-          -- Неизвестный VFS syscall
           k_syscall("signal_send", sender_pid, "syscall_return", false, "Unknown VFS syscall: " .. syscall_name)
       end
       
     elseif sig_name == "os_event" then
-      -- Это сырое событие от ядра
       local event_name = p1
       if event_name == "component_added" then
         local addr = p2
@@ -281,11 +279,8 @@ while true do
       end
 
     elseif sig_name == "driver_ready" then
-        -- Драйвер сообщил о готовности!
-        -- sender_pid уже содержит правильный PID
         if sender_pid == drivers.tty_pid then
             state.tty_ready = true
-            -- Используем print, т.к. TTY еще не готов для VFS
             k_syscall("kernel_log", "[Ring 1] TTY driver is ready.")
             
             if not state.init_spawned then
@@ -300,4 +295,5 @@ while true do
         end
     end
   end
+  k_syscall("process_yield")
 end
