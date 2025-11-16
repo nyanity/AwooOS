@@ -140,7 +140,7 @@ local function load_driver(component_type, address)
   
   k_syscall("kernel_log", "[Ring 1] Loading driver " .. driver_path .. " for " .. address)
   
-  local dummy, pid, err = k_syscall("process_spawn", driver_path, 2, {
+  local ok, pid, err = k_syscall("process_spawn", driver_path, 2, {
     address = address
   })
   
@@ -151,14 +151,14 @@ local function load_driver(component_type, address)
   
   k_syscall("kernel_log", "[Ring 1] Driver " .. component_type .. " spawned as PID " .. pid)
   
-  -- Store special drivers
+  -- store special drivers
   if component_type == "tty" then
     drivers.tty_pid = pid
   elseif component_type == "gpu" then
     drivers.gpu_pid = pid
   end
   
-  -- Register this driver with the kernel
+  -- register this driver with the kernel
   k_syscall("kernel_register_driver", component_type, pid)
   k_syscall("kernel_map_component", address, pid)
 end
@@ -167,7 +167,7 @@ end
 local function scan_and_load_drivers()
   k_syscall("kernel_log", "[Ring 1] Scanning for components...")
   
-  -- 1. Получаем информацию о корневой ФС от ядра
+  -- receive information about the root file system from the kernel
   local ok, root_uuid, root_proxy = k_syscall("kernel_get_root_fs")
   if not ok then
     k_syscall("kernel_panic", "Pipeline could not get root FS info from kernel: " .. tostring(root_uuid))
@@ -176,31 +176,47 @@ local function scan_and_load_drivers()
   
   k_syscall("kernel_log", "[Ring 1] Got root FS: " .. root_uuid)
   
-  -- 2. Регистрируем корневую точку монтирования в VFS менеджера
+  -- registering the root mount point in the VFS manager
   vfs.mounts["/"] = {
     type = "rootfs",
     proxy = root_proxy,
   }
 
-  -- 3. Теперь сканируем все остальные компоненты
+  -- scan
   local ok, comp_list = k_syscall("raw_component_list")
   if not ok then
     k_syscall("kernel_log", "[Ring 1] Failed to list components: " .. comp_list)
     return
   end
   
-  -- 4. Загружаем драйверы в правильном порядке: сначала GPU и TTY
+  local sGpuAddress, sScreenAddress
   for addr, ctype in pairs(comp_list) do
-    if ctype == "gpu" then
-      load_driver("gpu", addr)
-    elseif ctype == "screen" then
-      load_driver("tty", addr)
+    if ctype == "gpu" and not sGpuAddress then
+      sGpuAddress = addr
+    elseif ctype == "screen" and not sScreenAddress then
+      sScreenAddress = addr
+    end
+  end
+
+  -- if there is a screen and gpu then run tty
+  if sGpuAddress and sScreenAddress then
+    k_syscall("kernel_log", "[Ring 1] Found screen and GPU. Loading TTY driver.")
+    local ok, pid, err = k_syscall("process_spawn", "/drivers/tty.sys.lua", 2, {
+      gpu = sGpuAddress,
+      screen = sScreenAddress
+    })
+    if pid then
+      drivers.tty_pid = pid
+      k_syscall("kernel_log", "[Ring 1] Driver tty spawned as PID " .. pid)
+    else
+      k_syscall("kernel_log", "[Ring 1] FAILED to load TTY driver: " .. err)
     end
   end
   
-  -- 5. Загружаем все остальные драйверы (включая драйвер для корневой ФС)
+  -- driver loiad
   for addr, ctype in pairs(comp_list) do
-    if ctype ~= "gpu" and ctype ~= "screen" then
+    -- skipping already satisfied tyupes
+    if ctype ~= "gpu" and ctype ~= "screen" and ctype ~= "tty" then
       load_driver(ctype, addr)
     end
   end
@@ -210,14 +226,13 @@ end
 
 scan_and_load_drivers()
 
--- Флаги для отслеживания состояния инициализации
+-- are we ready or not
 local state = {
   tty_ready = false,
   init_spawned = false,
 }
 
--- Сообщение о том, что мы переходим в основной цикл.
--- Оно не отобразится, т.к. TTY драйвер еще не работает, но полезно для отладки в будущем.
+-- a message indicating that we're entering the main loop.
 print("[Ring 1] Entering main pipeline event loop...")
 
 -------------------------------------------------
@@ -226,7 +241,7 @@ print("[Ring 1] Entering main pipeline event loop...")
 -- Этот цикл обрабатывает системные вызовы и события ОС.
 while true do
   -- Ждем любой сигнал (системный вызов, событие от ОС, сигнал от другого процесса)
-  local ok, sig_name, p1, p2, p3, p4, p5 = k_syscall("signal_pull")
+  local ok, sender_pid, sig_name, p1, p2, p3, p4 = k_syscall("signal_pull")
   
   if ok then
     if sig_name == "syscall" then
@@ -267,18 +282,18 @@ while true do
 
     elseif sig_name == "driver_ready" then
         -- Драйвер сообщил о готовности!
-        local sender_pid = p1
+        -- sender_pid уже содержит правильный PID
         if sender_pid == drivers.tty_pid then
             state.tty_ready = true
-            print("[Ring 1] TTY driver is ready.")
+            -- Используем print, т.к. TTY еще не готов для VFS
+            k_syscall("kernel_log", "[Ring 1] TTY driver is ready.")
             
-            -- Теперь, когда TTY готов, мы можем запустить процесс init
             if not state.init_spawned then
                 state.init_spawned = true
-                print("[Ring 1] Spawning Ring 3 init...")
-                local init_pid, err = k_syscall("process_spawn", "/bin/init.lua", 3)
-                if not init_pid then
-                  print("[Ring 1] FATAL: Could not spawn /bin/init.lua: " .. err)
+                k_syscall("kernel_log", "[Ring 1] Spawning Ring 3 init...")
+                local ok_spawn, init_pid, err = k_syscall("process_spawn", "/bin/init.lua", 3)
+                if not ok_spawn then
+                  k_syscall("kernel_log", "[Ring 1] FATAL: Could not spawn /bin/init.lua: " .. err)
                   k_syscall("kernel_panic", "Init spawn failed: " .. tostring(err))
                 end
             end

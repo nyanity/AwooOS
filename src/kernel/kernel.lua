@@ -52,7 +52,7 @@ local function direct_gpu_print(sText)
     
     -- move the cursor down
     nDebugY = nDebugY + 1
-    if nDebugY > 25 then nDebugY = 2 end -- loop it around so we don't scroll off into the void
+    if nDebugY > 40 then nDebugY = 2 end -- loop it around so we don't scroll off into the void
   end
 end
 
@@ -301,13 +301,17 @@ function kernel.create_process(sPath, nRing, nParentPid, tPassEnv)
   local co = coroutine.create(function()
     -- this pcall is our last line of defense against rogue processes
     local bOk, sErr = pcall(fFunc)
-    kprint("Process " .. nPid .. " exited.")
+    
     if not bOk then
-      -- process went belly-up
-      kernel.syscall_dispatch("tty_write", "\nProcess " .. nPid .. " crashed: " .. tostring(sErr))
-      -- TODO: tell its parent it failed. maybe.
+      -- the process has crashed! reporting this via privileged kprint.
+      kprint("!!! KERNEL ALERT: PROCESS " .. nPid .. " CRASHED !!!")
+      kprint("Crash reason: " .. tostring(sErr))
+    else
+      -- im ok
+      kprint("Process " .. nPid .. " exited normally.")
     end
-    -- process finished, mark as 'dead'
+
+    -- 'dead'
     kernel.tProcessTable[nPid].status = "dead"
   end)
   
