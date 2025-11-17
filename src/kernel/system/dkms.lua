@@ -160,7 +160,6 @@ function load_driver(sDriverPath, tDriverEnv)
   pDriverObject.sDriverPath = sDriverPath
   pDriverObject.nDriverPid = nPid
   pDriverObject.tDriverInfo = tDriverInfo
-  g_tDriverRegistry[sDriverPath] = pDriverObject
   
   -- 8. Send a signal to the new process to call its DriverEntry
   syscall("kernel_log", "[DKMS] Telling PID " .. nPid .. " to initialize...")
@@ -168,20 +167,42 @@ function load_driver(sDriverPath, tDriverEnv)
   
   -- 9. Wait for the driver to report back.
   -- a real system would have a timeout here.
-  local bPullOk, nSenderPid, sSignalName, nEntryStatus = syscall("signal_pull")
+  local bPullOk, nSenderPid, sSignalName, nEntryStatus, pInitializedDriverObject = syscall("signal_pull")
   if bPullOk and sSignalName == "driver_init_complete" and nSenderPid == nPid then
-    if nEntryStatus == tStatus.STATUS_SUCCESS then
+    if nEntryStatus == tStatus.STATUS_SUCCESS and pInitializedDriverObject then
       syscall("kernel_log", "[DKMS] Driver '" .. tDriverInfo.sDriverName .. "' loaded successfully as PID " .. nPid)
+      -- CRITICAL: Use the returned, fully configured driver object.
+      g_tDriverRegistry[sDriverPath] = pInitializedDriverObject
       return tStatus.STATUS_SUCCESS
     else
-      syscall("kernel_log", "[DKMS] Error: DriverEntry for '" .. tDriverInfo.sDriverName .. "' failed with status " .. nEntryStatus)
+      syscall("kernel_log", "[DKMS] Error: DriverEntry for '" .. tDriverInfo.sDriverName .. "' failed with status " .. (nEntryStatus or "UNKNOWN"))
       -- TODO: kill the process nPid
-      return nEntryStatus
+      return nEntryStatus or tStatus.STATUS_DRIVER_INIT_FAILED
     end
   else
-    syscall("kernel_log", "[DKMS] Error: Driver " .. nPid .. " failed to respond to init signal.")
+    syscall("kernel_log", "[DKMS] Error: Driver " .. nPid .. " failed to respond correctly to init signal.")
     return tStatus.STATUS_DRIVER_INIT_FAILED
   end
+end
+
+-- syscall("kernel_log", "[DKMS-DEBUG] Checking root directory contents...")
+local bListOk, tFileList = syscall("vfs_list", "/")
+if bListOk then
+    for i, sFile in ipairs(tFileList) do
+        -- syscall("kernel_log", "[DKMS-DEBUG] /" .. sFile)
+    end
+else
+    -- syscall("kernel_log", "[DKMS-DEBUG] Failed to list root directory!")
+end
+
+-- syscall("kernel_log", "[DKMS-DEBUG] Checking /drivers/ directory contents...")
+local bDrvListOk, tDrvFileList = syscall("vfs_list", "/drivers")
+if bDrvListOk then
+    for i, sFile in ipairs(tDrvFileList) do
+        --syscall("kernel_log", "[DKMS-DEBUG] /drivers/" .. sFile)
+    end
+else
+    --syscall("kernel_log", "[DKMS-DEBUG] Failed to list /drivers/ directory!")
 end
 
 -- main event loop
@@ -202,7 +223,7 @@ while true do
       -- this signal comes from the pipeline_manager when a user hits a device file
       local pIrp = p1
       g_tPendingIrps[pIrp.nSenderPid] = pIrp
-      local nDispatchStatus = oDispatcher.fDispatchIrp(pIrp, g_tDeviceTree)
+      local nDispatchStatus = oDispatcher.DispatchIrp(pIrp, g_tDeviceTree)
       if nDispatchStatus ~= tStatus.STATUS_PENDING then
         -- the dispatch failed immediately, complete the IRP right now
         tSyscallHandlers.dkms_complete_irp(0, pIrp, nDispatchStatus)
@@ -219,7 +240,7 @@ while true do
         -- This is a hardware interrupt. Find the driver that wants it.
         -- A real system would have a registry for this. We'll hardcode for TTY.
         for _, pDriver in pairs(g_tDriverRegistry) do
-            if pDriver.tDriverInfo.sDriverName == "AuraTTY" then
+            if pDriver.tDriverInfo.sDriverName == "AwooTTY" then
                 syscall("signal_send", pDriver.nDriverPid, "hardware_interrupt", "key_down", p2, p3, p4)
             end
         end

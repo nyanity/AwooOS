@@ -1,5 +1,6 @@
 -- BIOS. Bare metal. No `require`, just raw power.
-computer.beep(800, 0.1) -- boot beep.
+computer.pullSignal(0.3); computer.beep(1000, 0.2)
+
 local sGpuAddress
 local sScreenAddress
 
@@ -26,14 +27,20 @@ if sGpuAddress and sScreenAddress then
   local bOk, sReason = pcall(oGpu.bind, sScreenAddress) -- pcall, screen might be weird.
   if not bOk then
     oGpu = nil -- no gpu for us. sad.
-    computer.beep(500, 0.5)
   else
     cls()
     print(1, "AwooOS BIOS v0.2NV25RC00 (Bare-metal)")
     print(2, "Scanning for bootable drives...")
   end
 else
-  computer.beep(500, 0.5) -- beep of solitude.
+    while true do
+      -- die ears
+      computer.pullSignal(0.2)
+      computer.beep(500, 0.5); computer.pullSignal(0.04)
+      computer.beep(500, 0.2); computer.pullSignal(0.04)
+      computer.beep(500, 0.2); computer.pullSignal(0.08)
+    end
+  computer.beep(1000, 0.01) -- beep of solitude.
 end
 
 local sBootFsAddress = nil

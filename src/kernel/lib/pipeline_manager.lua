@@ -12,7 +12,7 @@ syscall("kernel_log", "[PM] Ring 1 Pipeline Manager started.")
 -- spawn the real heroes
 local bDkmsOk, nDkmsPid = syscall("process_spawn", "/system/dkms.lua", 1)
 if not bDkmsOk then syscall("kernel_panic", "Could not spawn DKMS!") end
-syscall("kernel_log", "[PM] DKMS process started as PID " .. nDkmsPid)
+syscall("kernel_log", "[PM] DKMS process started as PID " .. tostring(nDkmsPid))
 
 -- local bUmdhOk, nUmdhPid = syscall("process_spawn", "/system/umdh.lua", 3)
 -- if not bUmdhOk then syscall("kernel_panic", "Could not spawn UMDH!") end

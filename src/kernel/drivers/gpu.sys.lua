@@ -6,13 +6,13 @@
 --
 
 -- our driver development kit. don't leave home without it.
-local tStatus = require("/lib/errcheck")
-local oKMD = require("/system/lib/dk/kmd_api")
-local tDKStructs = require("/system/lib/dk/shared_structs")
+local tStatus = require("errcheck")
+local oKMD = require("kmd_api")
+local tDKStructs = require("shared_structs")
 
 -- static info for DKMS. this is our driver's resume.
 g_tDriverInfo = {
-  sDriverName = "AuraGPU",
+  sDriverName = "AwooGPU",
   sDriverType = tDKStructs.DRIVER_TYPE_KMD,
   nLoadPriority = 150, -- important, but less so than the initial TTY
   sVersion = "1.0.0",
@@ -86,7 +86,7 @@ end
 
 -- DKMS calls this function after it creates our process. this is where we set everything up.
 function DriverEntry(pDriverObject)
-  oKMD.DkPrint("AuraGPU DriverEntry starting.")
+  oKMD.DkPrint("AwooGPU DriverEntry starting.")
   
   -- 1. Set up our IRP dispatch table. this tells DKMS which functions to call for which actions.
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_CREATE] = fGpuDispatchCreate
@@ -119,26 +119,25 @@ function DriverEntry(pDriverObject)
   local nProxyStatus, oProxy = oKMD.DkGetHardwareProxy(sMyAddress)
   if nProxyStatus ~= tStatus.STATUS_SUCCESS then
     oKMD.DkPrint("GPU: Failed to get hardware proxy!")
-    -- no need to delete device/link here, the whole driver load will fail.
     return nProxyStatus
   end
   
   -- the device extension is our private scratchpad for this device instance.
   g_pDeviceObject.pDeviceExtension.oGpuProxy = oProxy
   
-  oKMD.DkPrint("AuraGPU DriverEntry completed successfully.")
+  oKMD.DkPrint("AwooGPU DriverEntry completed successfully.")
   return tStatus.STATUS_SUCCESS
 end
 
 -- DKMS calls this when it's time to unload the driver.
 function DriverUnload(pDriverObject)
-  oKMD.DkPrint("AuraGPU DriverUnload starting.")
+  oKMD.DkPrint("AwooGPU DriverUnload starting.")
   
   -- cleanup in reverse order of creation.
   oKMD.DkDeleteSymbolicLink("/dev/gpu0")
   oKMD.DkDeleteDevice(g_pDeviceObject)
   
-  oKMD.DkPrint("AuraGPU DriverUnload completed.")
+  oKMD.DkPrint("AwooGPU DriverUnload completed.")
   return tStatus.STATUS_SUCCESS
 end
 
@@ -155,8 +154,9 @@ while true do
       local pDriverObject = p1
       pDriverObject.fDriverUnload = DriverUnload -- register our unload function
       local nStatus = DriverEntry(pDriverObject)
-      -- report our success or failure back to DKMS.
-      syscall("signal_send", nSenderPid, "driver_init_complete", nStatus)
+      
+      -- THE FIX IS HERE: report back with status AND the modified driver object.
+      syscall("signal_send", nSenderPid, "driver_init_complete", nStatus, pDriverObject)
       
     elseif sSignalName == "irp_dispatch" then
       -- DKMS has a job for us.

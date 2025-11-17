@@ -9,7 +9,7 @@ local tStatus = require("errcheck")
 local oDispatch = {}
 
 -- this is the main entry point for all i/o requests from the vfs.
-function oDispatch.fDispatchIrp(pIrp, g_tDeviceTree)
+function oDispatch.DispatchIrp(pIrp, g_tDeviceTree)
   local pDeviceObject = g_tDeviceTree[pIrp.sDeviceName]
   
   if not pDeviceObject then

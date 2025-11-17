@@ -11,7 +11,7 @@ local tDKStructs = require("shared_structs")
 
 -- this is static information about our driver. DKMS reads this before loading us.
 g_tDriverInfo = {
-  sDriverName = "AuraTTY",
+  sDriverName = "AwooTTY",
   sDriverType = tDKStructs.DRIVER_TYPE_KMD,
   nLoadPriority = 100, -- pretty important, load it early
   sVersion = "1.0.0",
@@ -95,7 +95,7 @@ end
 
 -- this is our main entry point. DKMS tells us to run this after spawning us.
 function DriverEntry(pDriverObject)
-  oKMD.DkPrint("AuraTTY DriverEntry starting.")
+  oKMD.DkPrint("AwooTTY DriverEntry starting.")
   
   -- 1. Set up our IRP dispatch table
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_CREATE] = fTtyDispatchCreate
@@ -147,13 +147,13 @@ function DriverEntry(pDriverObject)
   -- 5. Register for keyboard interrupts
   oKMD.DkRegisterInterrupt("key_down")
   
-  oKMD.DkPrint("AuraTTY DriverEntry completed successfully.")
+  oKMD.DkPrint("AwooTTY DriverEntry completed successfully.")
   return tStatus.STATUS_SUCCESS
 end
 
 -- called by DKMS when the driver is being unloaded.
 function DriverUnload(pDriverObject)
-  oKMD.DkPrint("AuraTTY DriverUnload starting.")
+  oKMD.DkPrint("AwooTTY DriverUnload starting.")
   
   -- cleanup in reverse order of creation
   oKMD.DkDeleteSymbolicLink("/dev/tty")
@@ -161,7 +161,7 @@ function DriverUnload(pDriverObject)
   
   -- hardware can be left as is.
   
-  oKMD.DkPrint("AuraTTY DriverUnload completed.")
+  oKMD.DkPrint("AwooTTY DriverUnload completed.")
   return tStatus.STATUS_SUCCESS
 end
 
