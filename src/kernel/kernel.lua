@@ -504,9 +504,9 @@ kernel.tSyscallTable["kernel_get_boot_log"] = {
   allowed_rings = {1, 2} -- for TTY driver
 }
 kernel.tSyscallTable["syscall_override"] = {
-  func = function(nPid, s_syscallname)
+  func = function(nPid, sSyscallName)
     -- the calling process (nPid) now handles this syscall
-    kernel.tSyscallOverrides[s_syscallname] = nPid
+    kernel.tSyscallOverrides[sSyscallName] = nPid
     return true
   end,
   allowed_rings = {1} -- only pipeline can override syscalls
