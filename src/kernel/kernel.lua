@@ -175,6 +175,9 @@ function kernel.custom_require(sModulePath, nCallingPid)
     -- for drivers and other sketchy stuff
     "/drivers/" .. sModulePath .. ".lua",
     "/drivers/" .. sModulePath .. ".sys.lua",
+    "/system/" .. sModulePath .. ".lua",
+    "/system/lib/dk/" .. sModulePath .. ".lua",
+    "/sys/security/" .. sModulePath .. ".lua",
   }
   
   local sCode, sErr

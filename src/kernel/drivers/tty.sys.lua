@@ -1,142 +1,210 @@
 --
 -- /drivers/tty.sys.lua
--- the teletype driver. turns key presses into pixels and back again. it's basically magic.
+-- the teletype driver, reborn under the new driver model.
+-- event-driven, stateful, and much more robust.
 --
 
-local syscall = syscall
+-- these are our bibles. the driver kit.
+local tStatus = require("errcheck")
+local oKMD = require("kmd_api")
+local tDKStructs = require("shared_structs")
 
--- configuration from environment
-local sGpuAddress = env.gpu
-local sScreenAddress = env.screen
-local bPidOk, nMyPid = syscall("process_get_pid")
-
-if not sGpuAddress or not sScreenAddress then
-  syscall("kernel_panic", "TTY Driver started without GPU or Screen address.")
-end
-
--- get proxies for our hardware
-local bIsGpuOk, oGpuProxy = syscall("raw_component_proxy", sGpuAddress)
-if not bIsGpuOk or not oGpuProxy then syscall("kernel_panic", "TTY driver failed to get GPU proxy.") end
-
-local bIsScreenOk, oScreenProxy = syscall("raw_component_proxy", sScreenAddress)
-if not bIsScreenOk or not oScreenProxy then syscall("kernel_panic", "TTY driver failed to get Screen proxy.") end
-
--- our internal state for the screen buffer
-local tTtyState = {}
-
--- initialization
-syscall("raw_component_invoke", sGpuAddress, "bind", sScreenAddress)
-local bSyscallOk, bInvokeOk, nWidth, nHeight = syscall("raw_component_invoke", sGpuAddress, "getResolution")
-if not (bSyscallOk and bInvokeOk) then
-  syscall("kernel_panic", "TTY: Failed to get screen resolution.")
-end
-tTtyState.nWidth, tTtyState.nHeight = nWidth, nHeight
-syscall("raw_component_invoke", sGpuAddress, "fill", 1, 1, tTtyState.nWidth, tTtyState.nHeight, " ")
-syscall("raw_component_invoke", sGpuAddress, "setForeground", 0xEEEEEE)
-syscall("raw_component_invoke", sGpuAddress, "setBackground", 0x000000)
-tTtyState.nCursorX = 1
-tTtyState.nCursorY = 1
-
--- the screen is full, time to push everything up. gravity, but for text.
-function tTtyState.scroll()
-  local tReturns = {syscall("raw_component_invoke", sGpuAddress, "copy", 1, 2, tTtyState.nWidth, tTtyState.nHeight - 1, 0, -1)}
-  if not (tReturns[1] and tReturns[2]) then
-    syscall("kernel_log", "[TTY-ERROR] gpu.copy failed: " .. tostring(tReturns[3]))
-  end
-  
-  tReturns = {syscall("raw_component_invoke", sGpuAddress, "fill", 1, tTtyState.nHeight, tTtyState.nWidth, 1, " ")}
-  if not (tReturns[1] and tReturns[2]) then
-    syscall("kernel_log", "[TTY-ERROR] gpu.fill failed: " .. tostring(tReturns[3]))
-  end
-  
-  tTtyState.nCursorY = tTtyState.nHeight
-end
-
--- painting characters onto the screen, one by one.
-function tTtyState.write(sText)
-  for sChar in string.gmatch(tostring(sText), ".") do
-    if sChar == "\n" then
-      tTtyState.nCursorX = 1
-      tTtyState.nCursorY = tTtyState.nCursorY + 1
-    else
-      local tReturns = {syscall("raw_component_invoke", sGpuAddress, "set", tTtyState.nCursorX, tTtyState.nCursorY, tostring(sChar))}
-      local bIsSyscallOk = tReturns[1]
-      local bIsInvokeOk = tReturns[2]
-      
-      if not (bIsSyscallOk and bIsInvokeOk) then
-        local sErrMsg = tReturns[3]
-        syscall("kernel_log", "[TTY-ERROR] gpu.set failed: " .. tostring(sErrMsg))
-      end
-      
-      tTtyState.nCursorX = tTtyState.nCursorX + 1
-      if tTtyState.nCursorX > tTtyState.nWidth then
-        tTtyState.nCursorX = 1
-        tTtyState.nCursorY = tTtyState.nCursorY + 1
-      end
-    end
-    if tTtyState.nCursorY > tTtyState.nHeight then
-      tTtyState.scroll()
-    end
-  end
-end
-
--- managing the read loop. are we waiting for input or just chilling?
-local tReadState = {
-  sMode = "idle", -- "idle"/"reading"
-  nReadRequesterPid = nil,
-  sLineBuffer = ""
+-- this is static information about our driver. DKMS reads this before loading us.
+g_tDriverInfo = {
+  sDriverName = "AuraTTY",
+  sDriverType = tDKStructs.DRIVER_TYPE_KMD,
+  nLoadPriority = 100, -- pretty important, load it early
+  sVersion = "1.0.0",
 }
 
-syscall("kernel_log", "[TTY PID " .. tostring(nMyPid) .. "] Initialized. Sending 'driver_ready'.")
-syscall("signal_send", 2, "driver_ready", tostring(nMyPid)) 
+-- local state for our driver
+local g_pDeviceObject = nil
+local g_oGpuProxy = nil
 
--- main driver loop. listening for whispers on the wind (or, you know, s i g n a l s).
-while true do
-  local bSyscallOk, bPullOk, nSenderPid, sSignalName, p1, p2, p3, p4 = syscall("signal_pull")
+-------------------------------------------------
+-- IRP HANDLERS
+-------------------------------------------------
+-- these functions are called by the dispatcher when an app tries to use our device.
 
-  if bPullOk then
-    syscall("kernel_log", string.format("[TTY-DEBUG] Pulled signal: '%s' from PID %s", tostring(sSignalName), tostring(nSenderPid)))
-  end
+-- called on fs.open("/dev/tty")
+local function fTtyDispatchCreate(pDeviceObject, pIrp)
+  oKMD.DkPrint("TTY: IRP_MJ_CREATE received.")
+  -- we don't need to do much here, just succeed the request.
+  -- a real driver might allocate a handle-specific structure here.
+  oKMD.DkCompleteRequest(pIrp, tStatus.STATUS_SUCCESS, { fd = 1 }) -- return a dummy fd info
+end
 
-  if bSyscallOk and bPullOk then
-    
-    if sSignalName == "tty_write" then
-      local sData = p2
-      tTtyState.write(tostring(sData))
-    
-    elseif sSignalName == "tty_read" then
-      if tReadState.sMode == "idle" then
-        tReadState.sMode = "reading"
-        tReadState.nReadRequesterPid = p1
-        tReadState.sLineBuffer = ""
-      else
-        -- someone else is already trying to read. tell the new guy to wait.
-        syscall("signal_send", p1, "syscall_return", false, "TTY busy")
+-- called on fs.close(handle)
+local function fTtyDispatchClose(pDeviceObject, pIrp)
+  oKMD.DkPrint("TTY: IRP_MJ_CLOSE received.")
+  -- nothing to clean up per-handle, so just succeed.
+  oKMD.DkCompleteRequest(pIrp, tStatus.STATUS_SUCCESS)
+end
+
+-- called on fs.write(handle, data)
+local function fTtyDispatchWrite(pDeviceObject, pIrp)
+  local sData = pIrp.tParameters.sData
+  oKMD.DkPrint("TTY: IRP_MJ_WRITE received with data: " .. sData)
+  
+  local pExt = pDeviceObject.pDeviceExtension
+  
+  for sChar in string.gmatch(tostring(sData), ".") do
+    if sChar == "\n" then
+      pExt.nCursorX = 1
+      pExt.nCursorY = pExt.nCursorY + 1
+    else
+      g_oGpuProxy.set(pExt.nCursorX, pExt.nCursorY, sChar)
+      pExt.nCursorX = pExt.nCursorX + 1
+      if pExt.nCursorX > pExt.nWidth then
+        pExt.nCursorX = 1
+        pExt.nCursorY = pExt.nCursorY + 1
       end
+    end
+    if pExt.nCursorY > pExt.nHeight then
+      -- scroll
+      g_oGpuProxy.copy(1, 2, pExt.nWidth, pExt.nHeight - 1, 0, -1)
+      g_oGpuProxy.fill(1, pExt.nHeight, pExt.nWidth, 1, " ")
+      pExt.nCursorY = pExt.nHeight
+    end
+  end
+  
+  oKMD.DkCompleteRequest(pIrp, tStatus.STATUS_SUCCESS, #sData) -- return bytes written
+end
 
-    elseif sSignalName == "os_event" then
-      local sEventName = p1
-      if sEventName == "key_down" and tReadState.sMode == "reading" then
-        local sChar = p3
-        local nCode = p4
-        
+-- called on fs.read(handle)
+local function fTtyDispatchRead(pDeviceObject, pIrp)
+  oKMD.DkPrint("TTY: IRP_MJ_READ received. Awaiting user input.")
+  local pExt = pDeviceObject.pDeviceExtension
+  
+  -- if we're already waiting for a read, fail this new one.
+  if pExt.pPendingReadIrp then
+    oKMD.DkCompleteRequest(pIrp, tStatus.STATUS_DEVICE_BUSY)
+    return
+  end
+  
+  -- store the IRP. we will complete it later when the user presses Enter.
+  pExt.pPendingReadIrp = pIrp
+  pExt.sLineBuffer = ""
+  
+  -- we don't complete the request here. we return STATUS_PENDING implicitly.
+end
+
+-------------------------------------------------
+-- DRIVER ENTRY & EXIT
+-------------------------------------------------
+
+-- this is our main entry point. DKMS tells us to run this after spawning us.
+function DriverEntry(pDriverObject)
+  oKMD.DkPrint("AuraTTY DriverEntry starting.")
+  
+  -- 1. Set up our IRP dispatch table
+  pDriverObject.tDispatch[tDKStructs.IRP_MJ_CREATE] = fTtyDispatchCreate
+  pDriverObject.tDispatch[tDKStructs.IRP_MJ_CLOSE] = fTtyDispatchClose
+  pDriverObject.tDispatch[tDKStructs.IRP_MJ_WRITE] = fTtyDispatchWrite
+  pDriverObject.tDispatch[tDKStructs.IRP_MJ_READ] = fTtyDispatchRead
+  
+  -- 2. Create our device object
+  local nStatus, pDeviceObj = oKMD.DkCreateDevice(pDriverObject, "\\Device\\TTY0")
+  if nStatus ~= tStatus.STATUS_SUCCESS then
+    oKMD.DkPrint("TTY: Failed to create device object!")
+    return nStatus
+  end
+  g_pDeviceObject = pDeviceObj
+  
+  -- 3. Create a symbolic link so user apps can find us
+  nStatus = oKMD.DkCreateSymbolicLink("/dev/tty", "\\Device\\TTY0")
+  if nStatus ~= tStatus.STATUS_SUCCESS then
+    oKMD.DkPrint("TTY: Failed to create symbolic link!")
+    oKMD.DkDeleteDevice(pDeviceObj) -- cleanup
+    return nStatus
+  end
+  
+  -- 4. Initialize the hardware and our device extension (state)
+  local sGpuAddress, sScreenAddress -- find them
+  for sAddr in syscall("raw_component_list", "gpu") do sGpuAddress = sAddr; break end
+  for sAddr in syscall("raw_component_list", "screen") do sScreenAddress = sAddr; break end
+  
+  if not sGpuAddress or not sScreenAddress then
+    oKMD.DkPrint("TTY: Could not find GPU or Screen component!")
+    return tStatus.STATUS_NO_SUCH_DEVICE
+  end
+  
+  local nProxyStatus, oProxy = oKMD.DkGetHardwareProxy(sGpuAddress)
+  if nProxyStatus ~= tStatus.STATUS_SUCCESS then return nProxyStatus end
+  g_oGpuProxy = oProxy
+  
+  g_oGpuProxy.bind(sScreenAddress)
+  local w, h = g_oGpuProxy.getResolution()
+  g_oGpuProxy.fill(1, 1, w, h, " ")
+  
+  -- store state in the device extension
+  local pExt = g_pDeviceObject.pDeviceExtension
+  pExt.nWidth, pExt.nHeight = w, h
+  pExt.nCursorX, pExt.nCursorY = 1, 1
+  pExt.pPendingReadIrp = nil
+  pExt.sLineBuffer = ""
+  
+  -- 5. Register for keyboard interrupts
+  oKMD.DkRegisterInterrupt("key_down")
+  
+  oKMD.DkPrint("AuraTTY DriverEntry completed successfully.")
+  return tStatus.STATUS_SUCCESS
+end
+
+-- called by DKMS when the driver is being unloaded.
+function DriverUnload(pDriverObject)
+  oKMD.DkPrint("AuraTTY DriverUnload starting.")
+  
+  -- cleanup in reverse order of creation
+  oKMD.DkDeleteSymbolicLink("/dev/tty")
+  oKMD.DkDeleteDevice(g_pDeviceObject)
+  
+  -- hardware can be left as is.
+  
+  oKMD.DkPrint("AuraTTY DriverUnload completed.")
+  return tStatus.STATUS_SUCCESS
+end
+
+-------------------------------------------------
+-- MAIN DRIVER LOOP
+-------------------------------------------------
+-- a driver process doesn't run freely. it just waits for signals from DKMS.
+while true do
+  local bOk, nSenderPid, sSignalName, p1, p2, p3, p4 = syscall("signal_pull")
+  
+  if bOk then
+    if sSignalName == "driver_init" then
+      local pDriverObject = p1
+      -- DKMS is telling us to initialize. call our entry point.
+      local nStatus = DriverEntry(pDriverObject)
+      -- report back to DKMS
+      syscall("signal_send", nSenderPid, "driver_init_complete", nStatus)
+      
+    elseif sSignalName == "irp_dispatch" then
+      local pIrp = p1
+      local fHandler = p2
+      -- DKMS is telling us to handle an IRP.
+      fHandler(g_pDeviceObject, pIrp)
+      
+    elseif sSignalName == "hardware_interrupt" and p1 == "key_down" then
+      local pExt = g_pDeviceObject.pDeviceExtension
+      if pExt.pPendingReadIrp then
+        -- we have a pending read request! process the key press.
+        local sChar, nCode = p3, p4
         if nCode == 28 then -- Enter
-          tTtyState.write("\n")
-          syscall("signal_send", tReadState.nReadRequesterPid, "syscall_return", true, tReadState.sLineBuffer)
-          tReadState.sMode = "idle"
-          tReadState.nReadRequesterPid = nil
-          
+          fTtyDispatchWrite(g_pDeviceObject, {tParameters={sData="\n"}}) -- echo newline
+          oKMD.DkCompleteRequest(pExt.pPendingReadIrp, tStatus.STATUS_SUCCESS, pExt.sLineBuffer)
+          pExt.pPendingReadIrp = nil
         elseif nCode == 14 then -- Backspace
-          if #tReadState.sLineBuffer > 0 then
-            tReadState.sLineBuffer = string.sub(tReadState.sLineBuffer, 1, -2)
-            tTtyState.nCursorX = tTtyState.nCursorX - 1
-            if tTtyState.nCursorX < 1 then tTtyState.nCursorX = 1 end
-            syscall("raw_component_invoke", sGpuAddress, "set", tTtyState.nCursorX, tTtyState.nCursorY, " ")
+          if #pExt.sLineBuffer > 0 then
+            pExt.sLineBuffer = string.sub(pExt.sLineBuffer, 1, -2)
+            -- echo backspace
+            fTtyDispatchWrite(g_pDeviceObject, {tParameters={sData="\b \b"}}) 
           end
         else
           if sChar and #sChar > 0 then
-            tReadState.sLineBuffer = tReadState.sLineBuffer .. sChar
-            tTtyState.write(sChar)
+            pExt.sLineBuffer = pExt.sLineBuffer .. sChar
+            fTtyDispatchWrite(g_pDeviceObject, {tParameters={sData=sChar}}) -- echo char
           end
         end
       end
