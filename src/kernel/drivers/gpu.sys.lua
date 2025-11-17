@@ -1,22 +1,32 @@
+--
+-- /drivers/gpu.sys.lua
+-- a simple proxy driver. it takes requests and just passes them on.
+-- the middleman for the graphics card.
+--
     
-local k_syscall = syscall
-local my_address = env.address
-local my_pid = k_syscall("process_get_pid")
+local syscall = syscall
 
-k_syscall("signal_send", 2, "driver_ready", my_pid)
+-- driver's own identity
+local sMyAddress = env.address
+local bPidOk, nMyPid = syscall("process_get_pid")
 
+-- let the pipeline manager know we're alive and kicking
+syscall("signal_send", 2, "driver_ready", nMyPid)
+
+-- the main event loop. just wait for work.
 while true do
-  local returns = table.pack(k_syscall("signal_pull"))
-  local ok = returns[1]
-  local sig_name = returns[2]
+  local tReturnValues = {syscall("signal_pull")}
+  local bIsOk = tReturnValues[1]
+  local sSignalName = tReturnValues[3] -- signal pull returns true, sender, name, ...
   
-  if ok and sig_name == "gpu_invoke" then
-    local sender_pid = returns[3]
-    local method = returns[4]
-    local ok_invoke, ret1, ret2 = k_syscall("raw_component_invoke", my_address, method, table.unpack(returns, 5, returns.n))
+  if bIsOk and sSignalName == "gpu_invoke" then
+    local nSenderPid = tReturnValues[2]
+    local sMethod = tReturnValues[4]
     
-    k_syscall("signal_send", sender_pid, "gpu_return", ok_invoke, ret1, ret2)
+    -- do the actual hardware call
+    local bInvokeOk, valRet1, valRet2 = syscall("raw_component_invoke", sMyAddress, sMethod, table.unpack(tReturnValues, 5, #tReturnValues))
+    
+    -- send the result back to whoever asked
+    syscall("signal_send", nSenderPid, "gpu_return", bInvokeOk, valRet1, valRet2)
   end
 end
-
-  

@@ -1,83 +1,93 @@
-local fs = require("filesystem")
+--
+-- /bin/init.lua
+-- the first userspace process. pid 1's big day.
+-- its job is to get a user logged in and start their shell.
+--
+
+local oFs = require("filesystem")
+
 -- open stdio, the classic way
-local hStdin = fs.open("/dev/tty", "r")
-local hStdout = fs.open("/dev/tty", "w")
+local hStdin = oFs.open("/dev/tty", "r")
+local hStdout = oFs.open("/dev/tty", "w")
 
-
-
-local function write(sText)
-  fs.write(hStdout, sText)
+-- a simple wrapper to make sure we're writing to the right place.
+local function fWrite(sText)
+  oFs.write(hStdout, sText)
 end
 
-write("[INIT] hStdout created. FD is: " .. tostring(hStdout and hStdout.fd) .. "\n")
+fWrite("[INIT] hStdout created. FD is: " .. tostring(hStdout and hStdout.fd) .. "\n")
 
-local function read()
+-- reads a line from stdin.
+local function fRead()
   -- TODO: implement secret read, rn it's just echoing. security!
-  return fs.read(hStdin)
+  return oFs.read(hStdin)
 end
 
 -- super secure hashing algorithm, do not steal
-local function hash(sPass)
-  return string.reverse(sPass) .. "AURA_SALT"
+-- top secret government-grade encryption. totally unbreakable.
+local function fHash(sPassword)
+  return string.reverse(sPassword) .. "AURA_SALT"
 end
 
 -- load the /etc/passwd.lua file
-local function load_passwd()
-  local hFile, sErr = fs.open("/etc/passwd.lua", "r")
-  if not hFile then
-    write("FATAL: Cannot open /etc/passwd.lua: " .. sErr .. "\n")
+-- let's see who's on the guest list.
+local function fLoadPasswd()
+  local hPasswdFile, sErr = oFs.open("/etc/passwd.lua", "r")
+  if not hPasswdFile then
+    fWrite("FATAL: Cannot open /etc/passwd.lua: " .. sErr .. "\n")
     return nil
   end
-  local sCode = fs.read(hFile)
-  fs.close(hFile)
+  local sFileContent = oFs.read(hPasswdFile)
+  oFs.close(hPasswdFile)
   
-  if not sCode or sCode == "" then
+  if not sFileContent or sFileContent == "" then
     return {}
   end
   
-  local fFunc, err = load(sCode, "passwd", "t", {})
-  if not fFunc then
-      write("FATAL: Syntax error in /etc/passwd.lua: " .. tostring(err) .. "\n")
+  local fLoadedFunc, sLoadErr = load(sFileContent, "passwd", "t", {})
+  if not fLoadedFunc then
+      fWrite("FATAL: Syntax error in /etc/passwd.lua: " .. tostring(sLoadErr) .. "\n")
       return nil
   end
 
-  return fFunc()
+  return fLoadedFunc()
 end
 
 -- main login loop
+-- the eternal login prompt. the gatekeeper.
 while true do
-  local tPasswdDb = load_passwd()
-  if not tPasswdDb then
+  local tPasswordDb = fLoadPasswd()
+  if not tPasswordDb then
     syscall("process_yield") -- wait and retry, maybe it'll exist later
   else
-    write("Welcome to AwooOS\n")
-    write("Login: ")
-    local sUsername = read()
+    fWrite("Welcome to AwooOS\n")
+    fWrite("Login: ")
+    local sUsername = fRead()
     
-    local tUserEntry = tPasswdDb[sUsername]
+    local tUserEntry = tPasswordDb[sUsername]
     
-    write("Password: ")
-    local sPassword = read() -- TODO: secret read again. seriously.
+    fWrite("Password: ")
+    local sPassword = fRead() -- TODO: secret read again. seriously.
     
-    if tUserEntry and tUserEntry.hash == hash(sPassword) then
-      write("\nLogin successful. Starting shell...\n")
+    if tUserEntry and tUserEntry.hash == fHash(sPassword) then
+      fWrite("\nLogin successful. Starting shell...\n")
       
       -- spawn the shell for the user
-      local nPid, sErr = syscall("process_spawn", tUserEntry.shell, 3, {
+      local nNewPid, sErr = syscall("process_spawn", tUserEntry.shell, 3, {
         USER = sUsername,
         HOME = tUserEntry.home,
         UID = tUserEntry.uid,
       })
       
-      if nPid then
+      if nNewPid then
         -- wait for the shell process to finish
-        syscall("process_wait", nPid)
-        write("\nShell exited. Logging out.\n\n") -- shell's done, log 'em out.
+        syscall("process_wait", nNewPid)
+        fWrite("\nShell exited. Logging out.\n\n") -- shell's done, log 'em out.
       else
-        write("\nFailed to start shell: " .. sErr .. "\n")
+        fWrite("\nFailed to start shell: " .. sErr .. "\n")
       end
     else
-      write("\nLogin incorrect.\n")
+      fWrite("\nLogin incorrect.\n")
     end
   end
 end

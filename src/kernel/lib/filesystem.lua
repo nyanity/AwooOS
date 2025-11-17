@@ -1,45 +1,51 @@
-local fs = {}
+--
+-- /lib/filesystem.lua
+-- a friendly wrapper around the vfs syscalls. makes file stuff less scary.
+--
 
-fs.open = function(path, mode)
-  local syscall_ok, vfs_ok, fd_or_err = syscall("vfs_open", path, mode or "r")
+local oFsLib = {}
+
+oFsLib.open = function(sPath, sMode)
+  local bSyscallOk, bVfsOk, valResult = syscall("vfs_open", sPath, sMode or "r")
   
-  if syscall_ok and vfs_ok then
-    return { fd = fd_or_err }
+  if bSyscallOk and bVfsOk then
+    -- wrap the numeric file descriptor in a handle table
+    return { fd = valResult }
   else
-    return nil, fd_or_err
+    return nil, valResult
   end
 end
 
-fs.read = function(handle, count)
-  if not handle or not handle.fd then return nil, "Invalid handle" end
-  local syscall_ok, vfs_ok, data_or_err = syscall("vfs_read", handle.fd, count or math.huge)
+oFsLib.read = function(hHandle, nCount)
+  if not hHandle or not hHandle.fd then return nil, "Invalid handle" end
+  local bSyscallOk, bVfsOk, valResult = syscall("vfs_read", hHandle.fd, nCount or math.huge)
 
-  if syscall_ok and vfs_ok then
-    return data_or_err
+  if bSyscallOk and bVfsOk then
+    return valResult
   else
-    return nil, data_or_err
+    return nil, valResult
   end
 end
 
-fs.write = function(handle, data)
-  if not handle or not handle.fd then return nil, "Invalid handle" end
-  return syscall("vfs_write", handle.fd, data)
+oFsLib.write = function(hHandle, sData)
+  if not hHandle or not hHandle.fd then return nil, "Invalid handle" end
+  return syscall("vfs_write", hHandle.fd, sData)
 end
 
-fs.close = function(handle)
-  if not handle or not handle.fd then return nil, "Invalid handle" end
+oFsLib.close = function(hHandle)
+  if not hHandle or not hHandle.fd then return nil, "Invalid handle" end
   
-  return syscall("vfs_close", handle.fd)
+  return syscall("vfs_close", hHandle.fd)
 end
 
-fs.list = function(path)
-  local syscall_ok, vfs_ok, list_or_err = syscall("vfs_list", path)
+oFsLib.list = function(sPath)
+  local bSyscallOk, bVfsOk, valResult = syscall("vfs_list", sPath)
   
-  if syscall_ok and vfs_ok then
-    return list_or_err
+  if bSyscallOk and bVfsOk then
+    return valResult
   else
-    return nil, list_or_err
+    return nil, valResult
   end
 end
 
-return fs
+return oFsLib

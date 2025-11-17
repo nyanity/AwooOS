@@ -1,126 +1,142 @@
-local k_syscall = syscall
-local gpu_address = env.gpu
-local screen_address = env.screen
-local my_pid = k_syscall("process_get_pid")
+--
+-- /drivers/tty.sys.lua
+-- the teletype driver. turns key presses into pixels and back again. it's basically magic.
+--
 
-if not gpu_address or not screen_address then
-  k_syscall("kernel_panic", "TTY Driver started without GPU or Screen address.")
+local syscall = syscall
+
+-- configuration from environment
+local sGpuAddress = env.gpu
+local sScreenAddress = env.screen
+local bPidOk, nMyPid = syscall("process_get_pid")
+
+if not sGpuAddress or not sScreenAddress then
+  syscall("kernel_panic", "TTY Driver started without GPU or Screen address.")
 end
 
-local ok_gpu, proxy_gpu = k_syscall("raw_component_proxy", gpu_address)
-if not ok_gpu or not proxy_gpu then k_syscall("kernel_panic", "TTY driver failed to get GPU proxy.") end
+-- get proxies for our hardware
+local bIsGpuOk, oGpuProxy = syscall("raw_component_proxy", sGpuAddress)
+if not bIsGpuOk or not oGpuProxy then syscall("kernel_panic", "TTY driver failed to get GPU proxy.") end
 
-local ok_screen, proxy_screen = k_syscall("raw_component_proxy", screen_address)
-if not ok_screen or not proxy_screen then k_syscall("kernel_panic", "TTY driver failed to get Screen proxy.") end
+local bIsScreenOk, oScreenProxy = syscall("raw_component_proxy", sScreenAddress)
+if not bIsScreenOk or not oScreenProxy then syscall("kernel_panic", "TTY driver failed to get Screen proxy.") end
 
-local tty = {}
-k_syscall("raw_component_invoke", gpu_address, "bind", screen_address)
-local syscall_ok, invoke_ok, w, h = k_syscall("raw_component_invoke", gpu_address, "getResolution")
-if not (syscall_ok and invoke_ok) then
-  k_syscall("kernel_panic", "TTY: Failed to get screen resolution.")
+-- our internal state for the screen buffer
+local tTtyState = {}
+
+-- initialization
+syscall("raw_component_invoke", sGpuAddress, "bind", sScreenAddress)
+local bSyscallOk, bInvokeOk, nWidth, nHeight = syscall("raw_component_invoke", sGpuAddress, "getResolution")
+if not (bSyscallOk and bInvokeOk) then
+  syscall("kernel_panic", "TTY: Failed to get screen resolution.")
 end
-tty.width, tty.height = w, h
-k_syscall("raw_component_invoke", gpu_address, "fill", 1, 1, tty.width, tty.height, " ")
-k_syscall("raw_component_invoke", gpu_address, "setForeground", 0xEEEEEE)
-k_syscall("raw_component_invoke", gpu_address, "setBackground", 0x000000)
-tty.cursor_x = 1
-tty.cursor_y = 1
+tTtyState.nWidth, tTtyState.nHeight = nWidth, nHeight
+syscall("raw_component_invoke", sGpuAddress, "fill", 1, 1, tTtyState.nWidth, tTtyState.nHeight, " ")
+syscall("raw_component_invoke", sGpuAddress, "setForeground", 0xEEEEEE)
+syscall("raw_component_invoke", sGpuAddress, "setBackground", 0x000000)
+tTtyState.nCursorX = 1
+tTtyState.nCursorY = 1
 
-function tty.scroll()
-  local returns = {k_syscall("raw_component_invoke", gpu_address, "copy", 1, 2, tty.width, tty.height - 1, 0, -1)}
-  if not (returns[1] and returns[2]) then
-    k_syscall("kernel_log", "[TTY-ERROR] gpu.copy failed: " .. tostring(returns[3]))
+-- the screen is full, time to push everything up. gravity, but for text.
+function tTtyState.scroll()
+  local tReturns = {syscall("raw_component_invoke", sGpuAddress, "copy", 1, 2, tTtyState.nWidth, tTtyState.nHeight - 1, 0, -1)}
+  if not (tReturns[1] and tReturns[2]) then
+    syscall("kernel_log", "[TTY-ERROR] gpu.copy failed: " .. tostring(tReturns[3]))
   end
   
-  returns = {k_syscall("raw_component_invoke", gpu_address, "fill", 1, tty.height, tty.width, 1, " ")}
-  if not (returns[1] and returns[2]) then
-    k_syscall("kernel_log", "[TTY-ERROR] gpu.fill failed: " .. tostring(returns[3]))
+  tReturns = {syscall("raw_component_invoke", sGpuAddress, "fill", 1, tTtyState.nHeight, tTtyState.nWidth, 1, " ")}
+  if not (tReturns[1] and tReturns[2]) then
+    syscall("kernel_log", "[TTY-ERROR] gpu.fill failed: " .. tostring(tReturns[3]))
   end
   
-  tty.cursor_y = tty.height
+  tTtyState.nCursorY = tTtyState.nHeight
 end
 
-function tty.write(text)
-  for char in string.gmatch(tostring(text), ".") do
-    if char == "\n" then
-      tty.cursor_x = 1
-      tty.cursor_y = tty.cursor_y + 1
+-- painting characters onto the screen, one by one.
+function tTtyState.write(sText)
+  for sChar in string.gmatch(tostring(sText), ".") do
+    if sChar == "\n" then
+      tTtyState.nCursorX = 1
+      tTtyState.nCursorY = tTtyState.nCursorY + 1
     else
-      local returns = {k_syscall("raw_component_invoke", gpu_address, "set", tty.cursor_x, tty.cursor_y, tostring(char))}
-      local ok_syscall = returns[1]
-      local ok_invoke = returns[2]
+      local tReturns = {syscall("raw_component_invoke", sGpuAddress, "set", tTtyState.nCursorX, tTtyState.nCursorY, tostring(sChar))}
+      local bIsSyscallOk = tReturns[1]
+      local bIsInvokeOk = tReturns[2]
       
-      if not (ok_syscall and ok_invoke) then
-        local err_msg = returns[3]
-        k_syscall("kernel_log", "[TTY-ERROR] gpu.set failed: " .. tostring(err_msg))
+      if not (bIsSyscallOk and bIsInvokeOk) then
+        local sErrMsg = tReturns[3]
+        syscall("kernel_log", "[TTY-ERROR] gpu.set failed: " .. tostring(sErrMsg))
       end
       
-      tty.cursor_x = tty.cursor_x + 1
-      if tty.cursor_x > tty.width then
-        tty.cursor_x = 1
-        tty.cursor_y = tty.cursor_y + 1
+      tTtyState.nCursorX = tTtyState.nCursorX + 1
+      if tTtyState.nCursorX > tTtyState.nWidth then
+        tTtyState.nCursorX = 1
+        tTtyState.nCursorY = tTtyState.nCursorY + 1
       end
     end
-    if tty.cursor_y > tty.height then
-      tty.scroll()
+    if tTtyState.nCursorY > tTtyState.nHeight then
+      tTtyState.scroll()
     end
   end
 end
 
-local state = {
-  mode = "idle", -- "idle"/"reading"
-  read_requester_pid = nil,
-  line_buffer = ""
+-- managing the read loop. are we waiting for input or just chilling?
+local tReadState = {
+  sMode = "idle", -- "idle"/"reading"
+  nReadRequesterPid = nil,
+  sLineBuffer = ""
 }
 
-k_syscall("kernel_log", "[TTY PID " .. tostring(my_pid) .. "] Initialized. Sending 'driver_ready'.")
-k_syscall("signal_send", 2, "driver_ready", tostring(my_pid)) 
+syscall("kernel_log", "[TTY PID " .. tostring(nMyPid) .. "] Initialized. Sending 'driver_ready'.")
+syscall("signal_send", 2, "driver_ready", tostring(nMyPid)) 
 
+-- main driver loop. listening for whispers on the wind (or, you know, s i g n a l s).
 while true do
-  local syscall_ok, pull_ok, sender_pid, sig_name, p1, p2, p3, p4 = k_syscall("signal_pull")
+  local bSyscallOk, bPullOk, nSenderPid, sSignalName, p1, p2, p3, p4 = syscall("signal_pull")
 
-  if pull_ok then
-    k_syscall("kernel_log", string.format("[TTY-DEBUG] Pulled signal: '%s' from PID %s", tostring(sig_name), tostring(sender_pid)))
+  if bPullOk then
+    syscall("kernel_log", string.format("[TTY-DEBUG] Pulled signal: '%s' from PID %s", tostring(sSignalName), tostring(nSenderPid)))
   end
 
-  if syscall_ok and pull_ok then
+  if bSyscallOk and bPullOk then
     
-    if sig_name == "tty_write" then
-      local data = p2
-      tty.write(tostring(data))
+    if sSignalName == "tty_write" then
+      local sData = p2
+      tTtyState.write(tostring(sData))
     
-    elseif sig_name == "tty_read" then
-      if state.mode == "idle" then
-        state.mode = "reading"
-        state.read_requester_pid = p1
-        state.line_buffer = ""
+    elseif sSignalName == "tty_read" then
+      if tReadState.sMode == "idle" then
+        tReadState.sMode = "reading"
+        tReadState.nReadRequesterPid = p1
+        tReadState.sLineBuffer = ""
       else
-        k_syscall("signal_send", p1, "syscall_return", false, "TTY busy")
+        -- someone else is already trying to read. tell the new guy to wait.
+        syscall("signal_send", p1, "syscall_return", false, "TTY busy")
       end
 
-    elseif sig_name == "os_event" then
-      local event_name = p1
-      if event_name == "key_down" and state.mode == "reading" then
-        local char = p3
-        local code = p4
+    elseif sSignalName == "os_event" then
+      local sEventName = p1
+      if sEventName == "key_down" and tReadState.sMode == "reading" then
+        local sChar = p3
+        local nCode = p4
         
-        if code == 28 then -- Enter
-          tty.write("\n")
-          k_syscall("signal_send", state.read_requester_pid, "syscall_return", true, state.line_buffer)
-          state.mode = "idle"
-          state.read_requester_pid = nil
+        if nCode == 28 then -- Enter
+          tTtyState.write("\n")
+          syscall("signal_send", tReadState.nReadRequesterPid, "syscall_return", true, tReadState.sLineBuffer)
+          tReadState.sMode = "idle"
+          tReadState.nReadRequesterPid = nil
           
-        elseif code == 14 then -- Backspace
-          if #state.line_buffer > 0 then
-            state.line_buffer = string.sub(state.line_buffer, 1, -2)
-            tty.cursor_x = tty.cursor_x - 1
-            if tty.cursor_x < 1 then tty.cursor_x = 1 end
-            k_syscall("raw_component_invoke", gpu_address, "set", tty.cursor_x, tty.cursor_y, " ")
+        elseif nCode == 14 then -- Backspace
+          if #tReadState.sLineBuffer > 0 then
+            tReadState.sLineBuffer = string.sub(tReadState.sLineBuffer, 1, -2)
+            tTtyState.nCursorX = tTtyState.nCursorX - 1
+            if tTtyState.nCursorX < 1 then tTtyState.nCursorX = 1 end
+            syscall("raw_component_invoke", sGpuAddress, "set", tTtyState.nCursorX, tTtyState.nCursorY, " ")
           end
         else
-          if char and #char > 0 then
-            state.line_buffer = state.line_buffer .. char
-            tty.write(char)
+          if sChar and #sChar > 0 then
+            tReadState.sLineBuffer = tReadState.sLineBuffer .. sChar
+            tTtyState.write(sChar)
           end
         end
       end

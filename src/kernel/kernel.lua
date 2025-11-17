@@ -1,42 +1,46 @@
+--
+-- /kernel.lua
+-- the big kahuna. the heart of the machine.
+-- don't touch this unless you know what you're doing. seriously.
+--
+
+-- module-level state. our single source of truth.
 local kernel = {
-  tProcessTable = {}, -- [nPid] = { co, sStatus, nRing, nParentPid, tEnv, tFds, ... }
-  tPidMap = {},       -- [coCoroutine] = nPid
-  tRings = {},         -- [nPid] = nRingLevel
-  nNextPid = 1,      -- our little counter, goes up, never down.
+  tProcessTable = {},     -- [nPid] = { co, sStatus, nRing, nParentPid, tEnv, tFds, ... }
+  tPidMap = {},           -- [coCoroutine] = nPid
+  tRings = {},            -- [nPid] = nRingLevel
+  nNextPid = 1,           -- our little counter, goes up, never down.
   
-  tSyscallTable = {}, -- [sName] = { fFunc, tAllowedRings }
+  tSyscallTable = {},     -- [sName] = { fFunc, tAllowedRings }
   tSyscallOverrides = {}, -- [sName] = nHandlingPid // for when ring 1 gets uppity
   
-  tEventQueue = {},   -- internal queue for OS signals (e.g. component_added). basically our gossip channel.
+  tEventQueue = {},       -- internal queue for OS signals (e.g. component_added). basically our gossip channel.
   
   -- VFS and Drivers
   tVfs = {
-    tMounts = {},      -- [sPath] = { sType, oProxy, tOptions }
-    oRootFs = nil,    -- the main FS proxy. don't lose this.
-    sRootUuid = nil,
+    tMounts = {},         -- [sPath] = { sType, oProxy, tOptions }
+    oRootFs = nil,        -- the main FS proxy. don't lose this.
+    sRootUuid = nil,      -- the address of the root fs. equally important.
   },
   
-  -- Loaded drivers (by component type)
-  tDriverRegistry = {}, -- [sComponentType] = { nDriverPid, ... } // who drives what
-  -- Mapped component addresses to their driver PIDs
-  tComponentDriverMap = {}, -- [sAddress] = nPid
-  
-  -- Ring 1 Pipeline Manager PID
+  tDriverRegistry = {}, -- [sComponentType] = { nDriverPid, ... } // who drives what and loaded drivers (by component type)
+  tComponentDriverMap = {}, -- [sAddress] = nPid // mapped component addresses to their driver PIDs
   nPipelinePid = nil, -- the big boss of ring 1
-  
-  -- Log buffer for early boot messages
   tBootLog = {}, -- before real logging is a thing
+  tLoadedModules = {},
 }
 
-local nCurrentPid = 0
-
-
--- kernel.lua
-
+-- tracks the currently executing process. super important for context.
+local g_nCurrentPid = 0
 -- global var for screen line tracking. super primitive.
-local nDebugY = 2 
+local g_nDebugY = 2 
 
-local function direct_gpu_print(sText)
+-------------------------------------------------
+-- EARLY BOOT & DEBUG FUNCTIONS
+-------------------------------------------------
+
+-- the emergency broadcast system. no syscalls, just raw power.
+local function __gpu_dprint(sText)
   -- try to find a GPU and screen, brute-force style
   local sGpuAddr, sScreenAddr
   for sAddr in raw_component.list("gpu") do sGpuAddr = sAddr; break end
@@ -48,33 +52,37 @@ local function direct_gpu_print(sText)
     pcall(oGpu.bind, sScreenAddr)
     
     -- slap the sText onto the screen
-    pcall(oGpu.fill, 1, nDebugY, 160, 1, " ")
-    pcall(oGpu.set, 1, nDebugY, tostring(sText))
+    pcall(oGpu.fill, 1, g_nDebugY, 160, 1, " ")
+    pcall(oGpu.set, 1, g_nDebugY, tostring(sText))
     
     -- move the cursor down
-    nDebugY = nDebugY + 1
-    if nDebugY > 40 then nDebugY = 2 end -- loop it around so we don't scroll off into the void
+    g_nDebugY = g_nDebugY + 1
+    if g_nDebugY > 40 then g_nDebugY = 2 end -- loop it around so we don't scroll off into the void
   end
 end
 
+-- the one true print function during boot.
 local function kprint(sText)
   -- save to log (the usual)
   table.insert(kernel.tBootLog, sText)
   
   -- AND IMMEDIATELY blast it to the screen using the emergency method
-  direct_gpu_print(sText)
+  __gpu_dprint(sText)
 end
-
 
 -------------------------------------------------
 -- KERNEL PANIC asdfghjkl
 -------------------------------------------------
+
+-- the 'everything is on fire' function.
 function kernel.panic(sReason)
+  -- the song of our people
   raw_computer.beep(400, 0.2)
   raw_computer.pullSignal(0.1)
   raw_computer.beep(400, 0.2)
   raw_computer.pullSignal(0.1)
   raw_computer.beep(400, 0.2)
+
   local sGpuAddress
   local sScreenAddress
   for sAddr in raw_component.list("gpu") do sGpuAddress = sAddr; break end
@@ -83,9 +91,8 @@ function kernel.panic(sReason)
   if sGpuAddress and sScreenAddress then
     local oGpu = raw_component.proxy(sGpuAddress)
 
-    local bOk, sBindErr = pcall(oGpu.bind, sScreenAddress)
-    if bOk then
-
+    local bIsOk, sBindErr = pcall(oGpu.bind, sScreenAddress)
+    if bIsOk then
       pcall(oGpu.fill, 1, 1, 160, 50, " ")
       pcall(oGpu.setForeground, 0xFF5555)
       -- Hahaha! Scaredy cat... AHHHHHHHHHH
@@ -112,11 +119,16 @@ function kernel.panic(sReason)
   end
 end
 
-local oPrimitiveFs = raw_component.proxy(boot_fs_address)
+-------------------------------------------------
+-- PRIMITIVE BOOTLOADER HELPERS
+-------------------------------------------------
+
+-- this is the filesystem we use before the real vfs is a thing.
+local g_oPrimitiveFs = raw_component.proxy(boot_fs_address)
 
 local function primitive_load(sPath)
   -- (this func is fine, but let's make it more robust... or at least pretend to)
-  local hFile, sReason = oPrimitiveFs.open(sPath, "r")
+  local hFile, sReason = g_oPrimitiveFs.open(sPath, "r")
   if not hFile then
     return nil, "primitive_load failed to open: " .. tostring(sReason or "Unknown error")
   end
@@ -124,13 +136,13 @@ local function primitive_load(sPath)
   local sData = ""
   local sChunk
   repeat
-    sChunk = oPrimitiveFs.read(hFile, math.huge)
+    sChunk = g_oPrimitiveFs.read(hFile, math.huge)
     if sChunk then
       sData = sData .. sChunk
     end
   until not sChunk
   
-  oPrimitiveFs.close(hFile)
+  g_oPrimitiveFs.close(hFile)
   return sData
 end
 
@@ -148,7 +160,9 @@ local function primitive_load_lua(sPath)
   return fFunc()
 end
 
-kernel.tLoadedModules = {}
+-------------------------------------------------
+-- PROCESS & MODULE MANAGEMENT
+-------------------------------------------------
 
 function kernel.custom_require(sModulePath, nCallingPid)
   if kernel.tLoadedModules[sModulePath] then
@@ -186,8 +200,8 @@ function kernel.custom_require(sModulePath, nCallingPid)
   end
   
   -- run the module's code. cross your fingers.
-  local bOk, result = pcall(fFunc)
-  if not bOk then
+  local bIsOk, result = pcall(fFunc)
+  if not bIsOk then
     return nil, "Failed to initialize module " .. sModulePath .. ": " .. result
   end
   
@@ -195,6 +209,7 @@ function kernel.custom_require(sModulePath, nCallingPid)
   return result
 end
 
+-- building the padded walls for our little processes.
 function kernel.create_sandbox(nPid, nRing)
   local tEnv = {}
   
@@ -207,9 +222,9 @@ function kernel.create_sandbox(nPid, nRing)
   
   -- 'os' is mostly safe. os.exit() is a big no-no.
   local tSafeOs = {}
-  for k, v in pairs(os) do
-    if k ~= "exit" and k ~= "execute" and k ~= "remove" and k ~= "rename" then
-      tSafeOs[k] = v
+  for sKey, vValue in pairs(os) do
+    if sKey ~= "exit" and sKey ~= "execute" and sKey ~= "remove" and sKey ~= "rename" then
+      tSafeOs[sKey] = vValue
     end
   end
   
@@ -271,12 +286,14 @@ function kernel.create_sandbox(nPid, nRing)
   setmetatable(tSandbox, { __index = _G })
   -- CRITICAL: stop the sandbox from reaching the real _G
   -- we reset _G inside the sandbox to point to itself. inception.¹
+  -- the ol' razzle dazzle. sandbox can't see the real world now.
   tSandbox._G = tSandbox
   
   return tSandbox
 end
 -- Yes, I know how that sounds.
 
+-- birthing a new process. hope it's a good one.
 function kernel.create_process(sPath, nRing, nParentPid, tPassEnv)
   local nPid = kernel.nNextPid
   kernel.nNextPid = kernel.nNextPid + 1
@@ -300,11 +317,11 @@ function kernel.create_process(sPath, nRing, nParentPid, tPassEnv)
   end
   
   -- spin up the coroutine
-  local co = coroutine.create(function()
+  local coProcess = coroutine.create(function()
     -- this pcall is our last line of defense against rogue processes
-    local bOk, sErr = pcall(fFunc)
+    local bIsOk, sErr = pcall(fFunc)
     
-    if not bOk then
+    if not bIsOk then
       -- the process has crashed! reporting this via privileged kprint.
       kprint("!!! KERNEL ALERT: PROCESS " .. nPid .. " CRASHED !!!")
       kprint("Crash reason: " .. tostring(sErr))
@@ -318,7 +335,7 @@ function kernel.create_process(sPath, nRing, nParentPid, tPassEnv)
   end)
   
   kernel.tProcessTable[nPid] = {
-    co = co,
+    co = coProcess,
     status = "ready", -- ready, running, sleeping, dead
     ring = nRing,
     parent = nParentPid,
@@ -327,7 +344,7 @@ function kernel.create_process(sPath, nRing, nParentPid, tPassEnv)
     wait_queue = {}, -- tWaitQueue: other nPids waiting on this one
     run_queue = {}
   }
-  kernel.tPidMap[co] = nPid
+  kernel.tPidMap[coProcess] = nPid
   kernel.tRings[nPid] = nRing
   
   return nPid
@@ -338,9 +355,10 @@ end
 -------------------------------------------------
 kernel.syscalls = {} -- implementation functions
 
+-- the grand central station of kernel requests.
 function kernel.syscall_dispatch(sName, ...)
-  local co = coroutine.running()
-  local nPid = kernel.tPidMap[co]
+  local coCurrent = coroutine.running()
+  local nPid = kernel.tPidMap[coCurrent]
   
   if not nPid then
     -- this is a coroutine not managed by us.
@@ -348,7 +366,7 @@ function kernel.syscall_dispatch(sName, ...)
     kernel.panic("Untracked coroutine tried to syscall: " .. sName)
   end
   
-  nCurrentPid = nPid
+  g_nCurrentPid = nPid
   local nRing = kernel.tRings[nPid]
   
   -- check for ring 1 overrides
@@ -360,13 +378,13 @@ function kernel.syscall_dispatch(sName, ...)
     tProcess.status = "sleeping"
     tProcess.wait_reason = "syscall"
     
-    local bOk, sErr = pcall(kernel.syscalls.signal_send, 0, nOverridePid, "syscall", {
+    local bIsOk, sErr = pcall(kernel.syscalls.signal_send, 0, nOverridePid, "syscall", {
       name = sName,
       args = {...},
       sender_pid = nPid,
     })
     
-    if not bOk then
+    if not bIsOk then
       -- failed to send signal to the driver. oops.
       tProcess.status = "ready"
       return nil, "Syscall IPC failed: " .. sErr
@@ -383,16 +401,17 @@ function kernel.syscall_dispatch(sName, ...)
   end
   
   -- RING CHECK
-  local bAllowed = false
+  local bIsAllowed = false
   for _, nAllowedRing in ipairs(tHandler.allowed_rings) do
     if nRing == nAllowedRing then
-      bAllowed = true
+      bIsAllowed = true
       break
     end
   end
   
-  if not bAllowed then
+  if not bIsAllowed then
     -- RING VIOLATION
+    -- you shall not pass!
     kprint("Ring violation: PID " .. nPid .. " (Ring " .. nRing .. ") tried to call " .. sName)
     -- this is a big deal. terminate the process with prejudice.
     kernel.tProcessTable[nPid].status = "dead"
@@ -401,27 +420,26 @@ function kernel.syscall_dispatch(sName, ...)
   
   -- all checks passed. let's do this.
   -- the syscall func itself is responsible for not exploding.
-  local bOk, ret1, ret2, ret3, ret4 = pcall(tHandler.func, nPid, ...)
+  local bIsOk, valRet1, valRet2, valRet3, valRet4 = pcall(tHandler.func, nPid, ...)
   
-  if not bOk then
+  if not bIsOk then
     -- the syscall itself failed. great.
-    return nil, ret1 -- ret1 is the sError message
+    return nil, valRet1 -- valRet1 is the sError message
   end
   
-  return true, ret1, ret2, ret3, ret4
+  return true, valRet1, valRet2, valRet3, valRet4
 end
 
 -------------------------------------------------
 -- SYSCALL DEFINITIONS
 -------------------------------------------------
 
--- Kernel (Ring 0)
+-- Kernel (Ring 0) -- the god-tier calls
 kernel.tSyscallTable["kernel_panic"] = {
   func = function(nPid, sReason) kernel.panic(sReason) end,
   allowed_rings = {0}
 }
 
--- NEW SYSCALL
 kernel.tSyscallTable["kernel_yield"] = {
     func = function() return coroutine.yield() end,
     allowed_rings = {0, 1, 2, 2.5, 3} -- 2.5? what is this, windows 98?
@@ -486,15 +504,15 @@ kernel.tSyscallTable["kernel_get_boot_log"] = {
   allowed_rings = {1, 2} -- for TTY driver
 }
 kernel.tSyscallTable["syscall_override"] = {
-  func = function(nPid, sSyscallName)
+  func = function(nPid, s_syscallname)
     -- the calling process (nPid) now handles this syscall
-    kernel.tSyscallOverrides[sSyscallName] = nPid
+    kernel.tSyscallOverrides[s_syscallname] = nPid
     return true
   end,
   allowed_rings = {1} -- only pipeline can override syscalls
 }
 
--- Process Management
+-- Process Management -- herding cats
 kernel.tSyscallTable["process_spawn"] = {
   func = function(nPid, sPath, nRing, tPassEnv)
     local nParentRing = kernel.tRings[nPid]
@@ -563,7 +581,7 @@ kernel.tSyscallTable["process_get_pid"] = {
   allowed_rings = {0, 1, 2, 2.5, 3}
 }
 
--- Raw Component (Privileged)
+-- Raw Component (Privileged) -- touching the hardware
 kernel.tSyscallTable["raw_component_list"] = {
   func = function(nPid, sFilter)
     local tList = {}
@@ -586,8 +604,8 @@ kernel.tSyscallTable["raw_component_proxy"] = {
   func = function(nPid, sAddress)
     -- just create and return the oProxy.
     -- pcall just in case the sAddress is bogus.
-    local bOk, oProxy = pcall(raw_component.proxy, sAddress)
-    if bOk then
+    local bIsOk, oProxy = pcall(raw_component.proxy, sAddress)
+    if bIsOk then
       return oProxy
     else
       return nil, "Invalid component address"
@@ -595,10 +613,11 @@ kernel.tSyscallTable["raw_component_proxy"] = {
   end,
   allowed_rings = {0, 1, 2} -- allow drivers (ring 2) to get proxies.
 }
--- ipc
+
+-- IPC -- passing notes in class
 kernel.syscalls.signal_send = function(nPid, nTargetPid, ...)
-  local signal_args = {...}
-  -- kprint(string.format("SIGNAL SEND: From PID %d to PID %d. Name: %s", nPid, nTargetPid, tostring(signal_args[1])))
+  local tSignalArgs = {...}
+  -- kprint(string.format("SIGNAL SEND: From PID %d to PID %d. Name: %s", nPid, nTargetPid, tostring(tSignalArgs[1])))
 
   local tTarget = kernel.tProcessTable[nTargetPid]
   if not tTarget then return nil, "Invalid PID" end
@@ -659,7 +678,7 @@ kernel.tSyscallTable["vfs_write"] = { func = function() end, allowed_rings = {1,
 kernel.tSyscallTable["vfs_close"] = { func = function() end, allowed_rings = {1, 2, 2.5, 3} }
 kernel.tSyscallTable["vfs_list"]  = { func = function() end, allowed_rings = {1, 2, 2.5, 3} }
 
--- Computer
+-- Computer -- the big red buttons
 kernel.tSyscallTable["computer_shutdown"] = {
   func = function() raw_computer.shutdown() end,
   allowed_rings = {0, 1, 2, 2.5} -- user (3) cannot shutdown
@@ -696,23 +715,23 @@ kprint("Root filesystem mounted from " .. kernel.tVfs.sRootUuid)
 
 -- 2. Create nPid 0 (Kernel Process)
 -- this process "owns" the kernel and runs the main loop. it's us!
-local nKPid = kernel.nNextPid
+local nKernelPid = kernel.nNextPid
 kernel.nNextPid = kernel.nNextPid + 1
-local kCo = coroutine.running()
-local kEnv = kernel.create_sandbox(nKPid, 0)
-kernel.tProcessTable[nKPid] = {
-  co = kCo, status = "running", ring = 0,
-  parent = 0, env = kEnv, fds = {}
+local coKernel = coroutine.running()
+local tKernelEnv = kernel.create_sandbox(nKernelPid, 0)
+kernel.tProcessTable[nKernelPid] = {
+  co = coKernel, status = "running", ring = 0,
+  parent = 0, env = tKernelEnv, fds = {}
 }
-kernel.tPidMap[kCo] = nKPid
-kernel.tRings[nKPid] = 0
-nCurrentPid = nKPid
+kernel.tPidMap[coKernel] = nKernelPid
+kernel.tRings[nKernelPid] = 0
+g_nCurrentPid = nKernelPid
 -- set the kernel's _G to its own sandbox. more inception.
-_G = kEnv
-kprint("Kernel process registered as PID " .. nKPid)
+_G = tKernelEnv
+kprint("Kernel process registered as PID " .. nKernelPid)
 
 -- 3. Load Ring 1 Pipeline Manager
-local nPipelinePid, sErr = kernel.create_process("/lib/pipeline_manager.lua", 1, nKPid)
+local nPipelinePid, sErr = kernel.create_process("/lib/pipeline_manager.lua", 1, nKernelPid)
 if not nPipelinePid then
   kernel.panic("Failed to start Ring 1 Pipeline Manager: " .. sErr)
 end
@@ -723,6 +742,7 @@ kprint("Ring 1 Pipeline Manager started as PID " .. nPipelinePid)
 -- MAIN KERNEL EVENT LOOP
 -------------------------------------------------
 kprint("Entering main event loop...")
+-- and so our watch begins.
 
 table.insert(kernel.tProcessTable[nPipelinePid].run_queue, "start")
 
@@ -730,26 +750,26 @@ while true do
   -- 1. Run all "ready" processes
   for nPid, tProcess in pairs(kernel.tProcessTable) do
     if tProcess.status == "ready" then
-      nCurrentPid = nPid
+      g_nCurrentPid = nPid
       tProcess.status = "running"
       
-      local resume_params = tProcess.resume_args
+      local tResumeParams = tProcess.resume_args
       tProcess.resume_args = nil
       
-      local bOk, err_or_sig_name
-      if resume_params then
+      local bIsOk, sErrOrSignalName
+      if tResumeParams then
         --kprint(string.format("SCHEDULER: Resuming PID %d with signal args.", nPid))
-        bOk, err_or_sig_name = coroutine.resume(tProcess.co, true, table.unpack(resume_params))
+        bIsOk, sErrOrSignalName = coroutine.resume(tProcess.co, true, table.unpack(tResumeParams))
       else
-        bOk, err_or_sig_name = coroutine.resume(tProcess.co)
+        bIsOk, sErrOrSignalName = coroutine.resume(tProcess.co)
       end
       
-      nCurrentPid = nKPid 
+      g_nCurrentPid = nKernelPid 
       
-      if not bOk then
+      if not bIsOk then
         tProcess.status = "dead"
         kprint("!!! KERNEL ALERT: PROCESS " .. nPid .. " CRASHED !!!")
-        kprint("Crash reason: " .. tostring(err_or_sig_name))
+        kprint("Crash reason: " .. tostring(sErrOrSignalName))
       end
       
       if coroutine.status(tProcess.co) == "dead" then
@@ -760,6 +780,7 @@ while true do
       end
       
       if tProcess.status == "dead" then
+        -- wake up any processes that were waiting for this one to die
         for _, nWaiterPid in ipairs(tProcess.wait_queue or {}) do
           local tWaiter = kernel.tProcessTable[nWaiterPid]
           if tWaiter and tWaiter.status == "sleeping" and tWaiter.wait_reason == "wait_pid" then
@@ -778,9 +799,9 @@ while true do
   if sEventName then
     -- this is a raw OS event.
     -- punt it over to the Pipeline Manager (ring 1) to deal with.
-    pcall(kernel.syscalls.signal_send, nKPid, kernel.nPipelinePid, "os_event", sEventName, p1, p2, p3, p4, p5)
+    pcall(kernel.syscalls.signal_send, nKernelPid, kernel.nPipelinePid, "os_event", sEventName, p1, p2, p3, p4, p5)
   end
   
   -- 3. Clean up dead processes
-  -- TODO: actually do this sometime
+  -- TODO: actually do this sometime. memory leaks are a feature, right?
 end

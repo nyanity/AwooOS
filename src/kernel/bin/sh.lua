@@ -1,80 +1,94 @@
-local fs = require("lib/filesystem")
-local sys = require("lib/syscall")
+--
+-- /bin/sh.lua
+-- the shell. where the user gets to break things.
+--
 
-local stdin = { fd = 0 }
-local stdout = { fd = 1 }
-local stderr = { fd = 2 }
+local oFs = require("lib/filesystem")
+local oSys = require("lib/syscall")
 
-local current_path = env.HOME or "/"
+-- standard file descriptors
+local hStdin = { fd = 0 }
+local hStdout = { fd = 1 }
+local hStderr = { fd = 2 }
 
-local function get_prompt()
-  local ring = syscall("process_get_ring")
-  local user = env.USER or "user"
-  local char = (ring == 2.5) and "#" or "$"
-  return user .. "@auraos:" .. current_path .. " " .. char .. " "
+-- shell state
+local sCurrentPath = env.HOME or "/"
+
+-- making it look pretty. the '#' for root is a classic.
+local function fGetPrompt()
+  local bIsOk, nRing = oSys.call("process_get_ring")
+  local sUser = env.USER or "user"
+  local sChar = (nRing == 2.5) and "#" or "$"
+  return sUser .. "@auraos:" .. sCurrentPath .. " " .. sChar .. " " -- yes, it say aura. i want so
 end
 
-local function split_cmd(line)
-  local args = {}
-  for arg in string.gmatch(line, "[^%s]+") do
-    table.insert(args, arg)
+-- chop chop chop.
+local function fSplitCommand(sLine)
+  local tArgs = {}
+  for sArg in string.gmatch(sLine, "[^%s]+") do
+    table.insert(tArgs, sArg)
   end
-  return args
+  return tArgs
 end
 
 -- Built-in commands
-local builtins = {}
+local tBuiltins = {}
 
-function builtins.cd(args)
-  local path = args[1] or env.HOME
+-- let's go on an adventure.
+function tBuiltins.cd(tArgs)
+  local sPath = tArgs[1] or env.HOME
   -- TODO: Path resolution (.., ., ~)
-  if fs.list(path) then -- Check if dir exists
-    current_path = path
+  local bIsOk, tList = oFs.list(sPath)
+  if bIsOk and tList then -- Check if dir exists
+    sCurrentPath = sPath
   else
-    fs.write(stderr, "cd: No such directory: " .. path .. "\n")
+    oFs.write(hStderr, "cd: No such directory: " .. sPath .. "\n")
   end
   return true
 end
 
-function builtins.exit()
+-- see ya!
+function tBuiltins.exit()
   return false -- Signal to exit loop
 end
 
+-- main shell loop
+-- read, parse, execute, repeat. the circle of life.
 while true do
-  fs.write(stdout, get_prompt())
-  local line = fs.read(stdin)
+  oFs.write(hStdout, fGetPrompt())
+  local bIsOk, sLine = oFs.read(hStdin)
   
-  if line then
-    local args = split_cmd(line)
-    local cmd = table.remove(args, 1)
+  if sLine then
+    local tArgs = fSplitCommand(sLine)
+    local sCmd = table.remove(tArgs, 1)
     
-    if cmd then
-      local builtin = builtins[cmd]
-      if builtin then
-        if not builtin(args) then
+    if sCmd then
+      local fBuiltin = tBuiltins[sCmd]
+      if fBuiltin then
+        if not fBuiltin(tArgs) then
           break -- exit
         end
       else
-        -- Not a builtin, try to execute
-        local cmd_path = "/usr/commands/" .. cmd .. ".lua"
+        -- Not a builtin, try to execute from the filesystem
+        local sCmdPath = "/usr/commands/" .. sCmd .. ".lua"
         
         -- Check if file exists
-        local f, err = fs.open(cmd_path, "r")
-        if f then
-          fs.close(f)
-          local ring = syscall("process_get_ring")
-          local pid, err = syscall("process_spawn", cmd_path, ring, {
-            PATH = current_path,
+        local hFile, sErr = oFs.open(sCmdPath, "r")
+        if hFile then
+          oFs.close(hFile)
+          local bRingOk, nRing = oSys.call("process_get_ring")
+          local bSpawnOk, nPid, sSpawnErr = oSys.call("process_spawn", sCmdPath, nRing, {
+            PATH = sCurrentPath,
             USER_ENV = env,
-            ARGS = args,
+            ARGS = tArgs,
           })
-          if pid then
-            syscall("process_wait", pid)
+          if nPid then
+            oSys.call("process_wait", nPid)
           else
-            fs.write(stderr, "exec failed: " .. err .. "\n")
+            oFs.write(hStderr, "exec failed: " .. sSpawnErr .. "\n")
           end
         else
-          fs.write(stderr, "command not found: " .. cmd .. "\n")
+          oFs.write(hStderr, "command not found: " .. sCmd .. "\n")
         end
       end
     end
