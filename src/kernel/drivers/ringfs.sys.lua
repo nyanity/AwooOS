@@ -97,7 +97,7 @@ function DriverEntry(pDriverObject)
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_READ] = fRingDispatchRead
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_DEVICE_CONTROL] = fRingDispatchDeviceControl
   
-  local nStatus, pDeviceObj = oKMD.DkCreateDevice(pDriverObject, "\\Device\\RingLog")
+  local nStatus, pDeviceObj = oKMD.DkCreateDevice(pDriverObject, "\\Device\\ringlog")
   if nStatus ~= tStatus.STATUS_SUCCESS then return nStatus end
   g_pDeviceObject = pDeviceObj
   
@@ -106,7 +106,7 @@ function DriverEntry(pDriverObject)
   pDeviceObj.pDeviceExtension.nMaxSize = DEFAULT_BUFFER_SIZE
   
   -- create the symlink so users can find us at /dev/ringlog
-  oKMD.DkCreateSymbolicLink("/dev/ringlog", "\\Device\\RingLog")
+  oKMD.DkCreateSymbolicLink("/dev/ringlog", "\\Device\\ringlog")
   
   
   return tStatus.STATUS_SUCCESS

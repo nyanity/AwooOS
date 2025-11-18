@@ -511,7 +511,8 @@ function kernel.create_process(sPath, nRing, nParentPid, tPassEnv)
     env = tEnv,
     fds = {}, -- tFds: file descriptors
     wait_queue = {}, -- tWaitQueue: other nPids waiting on this one
-    run_queue = {}
+    run_queue = {},
+    uid = (tPassEnv and tPassEnv.UID) or 1000
   }
   kernel.tPidMap[coProcess] = nPid
   kernel.tRings[nPid] = nRing
@@ -686,6 +687,14 @@ kernel.tSyscallTable["kernel_set_log_mode"] = {
   allowed_rings = {0, 1}
 }
 
+kernel.tSyscallTable["driver_load"] = {
+  func = function(nPid, sPath)
+    -- placeholder. pipeline manager should override this.
+    return nil, "Syscall not handled by PM"
+  end,
+  allowed_rings = {0, 1, 2, 2.5, 3} -- open the gates for ring 3
+}
+
 kernel.tSyscallTable["syscall_override"] = {
   func = function(nPid, sSyscallName)
     -- the calling process (nPid) now handles this syscall
@@ -762,6 +771,14 @@ kernel.tSyscallTable["process_get_pid"] = {
     return nPid -- just return it
   end,
   allowed_rings = {0, 1, 2, 2.5, 3}
+}
+
+kernel.tSyscallTable["process_get_uid"] = {
+  func = function(nPid, nTargetPid)
+    local tP = kernel.tProcessTable[nTargetPid or nPid]
+    if tP then return tP.uid else return nil end
+  end,
+  allowed_rings = {0, 1} -- only PM needs to know this usually
 }
 
 -- Raw Component (Privileged) -- touching the hardware
@@ -888,6 +905,12 @@ kernel.tSyscallTable["vfs_close"] = {
     func = function(nPid, hHandle) return pcall(g_oPrimitiveFs.close, hHandle) end,
     allowed_rings = {0, 1, 2, 2.5, 3}
 }
+
+kernel.tSyscallTable["vfs_chmod"] = {
+  func = function() return nil, "Not implemented in kernel" end,
+  allowed_rings = {0, 1, 2, 2.5, 3} -- PM will override this
+}
+
 kernel.tSyscallTable["vfs_list"]  = {
     func = function(nPid, sPath)
         local bOk, tListOrErr = pcall(g_oPrimitiveFs.list, sPath)

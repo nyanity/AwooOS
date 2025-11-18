@@ -67,8 +67,16 @@ while true do
     if tUserEntry and tUserEntry.hash == fHash(sPassword or "") then
       oFs.write(hStdout, "\nAccess Granted.\n")
       
-      local nPid = oSys.spawn(tUserEntry.shell, {
+      -- check if user has a specific ring requirement (like our dev god)
+      local nTargetRing = tUserEntry.ring or 3
+      
+      if nTargetRing == 0 then
+         oFs.write(hStdout, "\27[31mWARNING: SPAWNING IN RING 0 (KERNEL MODE)\27[37m\n")
+      end
+
+      local nPid = oSys.spawn(tUserEntry.shell, nTargetRing, { -- pass ring here
         USER = sUsername,
+        UID = tUserEntry.uid, -- pass UID to env so PM knows who is who
         HOME = tUserEntry.home,
         PWD = tUserEntry.home,
         PATH = "/usr/commands",

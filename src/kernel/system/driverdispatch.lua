@@ -33,7 +33,7 @@ function oDispatch.DispatchIrp(pIrp, g_tDeviceTree)
   
   -- ok, we found the driver and the right function to call.
   -- send a signal to the driver's process, telling it to execute the handler.
-  -- syscall("kernel_log", "[DD] Dispatching IRP " .. pIrp.nMajorFunction .. " to PID " .. pDriverObject.nDriverPid)
+  --syscall("kernel_log", "[DD] Dispatching IRP " .. pIrp.nMajorFunction .. " to PID " .. pDriverObject.nDriverPid)
   syscall("signal_send", pDriverObject.nDriverPid, "irp_dispatch", pIrp, fHandler)
   
   -- the operation is now in the hands of the driver. it will complete asynchronously.

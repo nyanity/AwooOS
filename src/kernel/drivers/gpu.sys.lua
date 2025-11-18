@@ -155,7 +155,7 @@ while true do
       pDriverObject.fDriverUnload = DriverUnload -- register our unload function
       local nStatus = DriverEntry(pDriverObject)
       
-      -- THE FIX IS HERE: report back with status AND the modified driver object.
+      -- report back with status AND the modified driver object.
       syscall("signal_send", nSenderPid, "driver_init_complete", nStatus, pDriverObject)
       
     elseif sSignalName == "irp_dispatch" then

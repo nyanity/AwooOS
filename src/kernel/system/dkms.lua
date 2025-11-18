@@ -222,6 +222,26 @@ while true do
       -- loading via path implies generic KMD/UMD. 
       -- if the driver at sPath is a CMD, load_driver will reject it because env is empty.
       load_driver(sPath, {})
+      
+  elseif sSignalName == "load_driver_path_request" then
+      local sPath = p1
+      local nOriginalRequester = p2
+      
+      local nStatus = load_driver(sPath, {})
+      
+      -- Gather intel on what we just loaded
+      local sDrvName = "Unknown"
+      local nDrvPid = -1
+      
+      -- We look up the registry to find the object we just created
+      local pObj = g_tDriverRegistry[sPath]
+      if pObj then
+         sDrvName = pObj.tDriverInfo.sDriverName or "Unnamed"
+         nDrvPid = pObj.nDriverPid
+      end
+      
+      -- Sending back: Status, Name, PID
+      syscall("signal_send", nSenderPid, "load_driver_result", nOriginalRequester, nStatus, sDrvName, nDrvPid)
 
   elseif sSignalName == "os_event" and p1 == "key_down" then
       for _, pDriver in pairs(g_tDriverRegistry) do

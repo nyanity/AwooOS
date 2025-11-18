@@ -47,4 +47,11 @@ oFsLib.list = function(sPath)
   end
 end
 
+oFsLib.chmod = function(sPath, nMode)
+  -- nMode should be a number (e.g. 0x1ED for 755, but lua 5.2 uses decimal usually)
+  -- we expect decimal representation of octal, e.g. 755 passed as 755 (integer)
+  local bSys, bVfs, valResult = syscall("vfs_chmod", sPath, nMode)
+  return bSys and bVfs, valResult
+end
+
 return oFsLib

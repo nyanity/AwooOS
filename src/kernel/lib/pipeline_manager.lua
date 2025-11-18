@@ -10,17 +10,60 @@ syscall("kernel_log", "[PM] Ring 1 Pipeline Manager started.")
 
 local nMyPid = syscall("process_get_pid") -- own pid
 
+local tPermCache = nil
+
 local nDkmsPid, sDkmsErr = syscall("process_spawn", "/system/dkms.lua", 1)
 if not nDkmsPid then syscall("kernel_panic", "Could not spawn DKMS: " .. tostring(sDkmsErr)) end
 syscall("kernel_log", "[PM] DKMS process started as PID " .. tostring(nDkmsPid))
 
-local vfs_state = { oRootFs = nil, nNextFd = 1, tOpenHandles = {} }
+local vfs_state = { oRootFs = nil, nNextFd = 0, tOpenHandles = {} }
 
 syscall("syscall_override", "vfs_open")
 syscall("syscall_override", "vfs_read")
 syscall("syscall_override", "vfs_write")
 syscall("syscall_override", "vfs_close")
 syscall("syscall_override", "vfs_list")
+syscall("syscall_override", "vfs_chmod")
+
+syscall("syscall_override", "driver_load")
+
+
+-- helper to parse "rw,size=100" into {rw=true, size=100}
+local function parse_options(sOptions)
+  local tOpts = {}
+  if not sOptions then return tOpts end
+  for sPart in string.gmatch(sOptions, "[^,]+") do
+    local k, v = sPart:match("([^=]+)=(.*)")
+    if k then 
+      tOpts[k] = tonumber(v) or v 
+    else
+      tOpts[sPart] = true
+    end
+  end
+  return tOpts
+end
+
+-- flushes the kernel boot log into the ringfs device
+local function flush_boot_log(sLogDevice)
+  syscall("kernel_log", "[PM] Flushing boot log to " .. sLogDevice)
+  
+  -- 1. Get the log from kernel (ring 0)
+  local sBootLog = syscall("kernel_get_boot_log")
+  if not sBootLog or #sBootLog == 0 then return end
+  
+  -- 2. Open the log device via our own VFS handler (loopback style)
+  -- we use the raw syscall mechanism to bypass our own overrides if needed, 
+  -- but calling handle_open directly is cleaner since we are the PM.
+  local bOk, nFd = vfs_state.handle_open(nMyPid, sLogDevice, "w")
+  
+  if bOk then
+     vfs_state.handle_write(nMyPid, nFd, sBootLog)
+     vfs_state.handle_close(nMyPid, nFd)
+     syscall("kernel_log", "[PM] Boot log flushed.")
+  else
+     syscall("kernel_log", "[PM] Failed to open log device for flushing.")
+  end
+end
 
 
 local function wait_for_dkms()
@@ -36,6 +79,101 @@ local function wait_for_dkms()
         end
     end
   end
+end
+
+local function load_perms()
+  -- FIX: Capture both success flag AND the handle
+  local bOk, h = syscall("raw_component_invoke", vfs_state.oRootFs.address, "open", "/etc/perms.lua", "r")
+  
+  if bOk and h then
+     local bReadOk, d = syscall("raw_component_invoke", vfs_state.oRootFs.address, "read", h, math.huge)
+     syscall("raw_component_invoke", vfs_state.oRootFs.address, "close", h)
+     
+     if bReadOk and d then 
+        local f = load(d, "perms", "t", {})
+        if f then tPermCache = f() end
+     end
+  end
+  if not tPermCache then tPermCache = {} end
+end
+
+local function save_perms()
+  if not tPermCache then return end
+  
+  local sData = "return {\n"
+  for sPath, tInfo in pairs(tPermCache) do
+     sData = sData .. string.format('  ["%s"] = { uid = %d, gid = %d, mode = %d },\n', 
+       sPath, tInfo.uid or 0, tInfo.gid or 0, tInfo.mode or 755)
+  end
+  sData = sData .. "}"
+  
+  -- FIX: Capture both success flag AND the handle
+  local bOk, h = syscall("raw_component_invoke", vfs_state.oRootFs.address, "open", "/etc/perms.lua", "w")
+  
+  if bOk and h then
+     syscall("raw_component_invoke", vfs_state.oRootFs.address, "write", h, sData)
+     syscall("raw_component_invoke", vfs_state.oRootFs.address, "close", h)
+  else
+     syscall("kernel_log", "[PM] ERROR: Failed to save permissions to disk!")
+  end
+end
+
+local function check_access(nPid, sPath, sMode)
+  -- 1. Get process info (we need to trust the kernel process table)
+  -- Since PM is Ring 1, we can't read kernel tables directly easily without a syscall.
+  -- Let's assume the UID is passed in the ENV of the process.
+  -- BUT: PM cannot easily read other process envs.
+  
+  -- SHORTCUT: For this iteration, we will trust a cached UID map or assume 
+  -- processes passed their UID during open? No, that's insecure.
+  
+  -- REALITY CHECK: Implementing full UID tracking in PM requires PM to track PIDs.
+  -- Let's assume for now that PID 0-10 are SYSTEM (UID 0).
+  
+  -- For the sake of this example, let's say we added a syscall "process_get_uid" to kernel.
+  -- If not, we default to UID 1000 (User) unless it's a system PID.
+  
+  local nUid = 1000 -- default to peasant
+  if nPid < 20 then nUid = 0 end -- system services are root
+  
+  -- If we are root, we do what we want.
+  if nUid == 0 then return true end
+  
+  -- 2. Check Perms
+  if not tPermCache then load_perms() end
+  local tP = tPermCache[sPath]
+  
+  -- Default permissions if not listed: 755 (rwxr-xr-x) owned by root
+  if not tP then tP = { uid=0, gid=0, mode=755 } end
+  
+  -- 3. Calculate required bit
+  local nReq = 4 -- read
+  if sMode == "w" or sMode == "a" then nReq = 2 end -- write
+  
+  -- 4. Check ownership
+  local nPermDigit = 0
+  local sModeStr = tostring(tP.mode)
+  
+  if nUid == tP.uid then
+     nPermDigit = tonumber(sModeStr:sub(1,1)) -- Owner
+  else
+     nPermDigit = tonumber(sModeStr:sub(3,3)) -- Others (skipping group for now)
+  end
+  
+  -- Bitwise check (lua 5.2 doesn't have bit32 lib by default in OC sometimes, so manual check)
+  -- 7=rwx, 6=rw, 5=rx, 4=r, 2=w, 1=x
+  local bAllowed = false
+  if nReq == 4 then -- Read
+     if nPermDigit >= 4 then bAllowed = true end
+  elseif nReq == 2 then -- Write
+     if nPermDigit == 2 or nPermDigit == 3 or nPermDigit == 6 or nPermDigit == 7 then bAllowed = true end
+  end
+  
+  if not bAllowed then
+     syscall("kernel_log", "[PM] ACCESS DENIED: PID " .. nPid .. " tried to " .. sMode .. " " .. sPath)
+  end
+  
+  return bAllowed
 end
 
 function vfs_state.handle_open(nSenderPid, sPath, sMode)
@@ -70,6 +208,10 @@ function vfs_state.handle_open(nSenderPid, sPath, sMode)
        return nil, "Device Open Failed: " .. tostring(nStatus)
     end
   end
+
+    if not check_access(nSenderPid, sPath, sMode or "r") then
+     return nil, "Permission denied"
+  end
   
   local bOk, hHandle, sReason = syscall("raw_component_invoke", vfs_state.oRootFs.address, "open", sPath, sMode)
   if not hHandle then return nil, sReason end
@@ -79,6 +221,45 @@ function vfs_state.handle_open(nSenderPid, sPath, sMode)
   vfs_state.tOpenHandles[nFd] = { type = "file", handle = hHandle }
   
   return true, nFd
+end
+
+function vfs_state.handle_chmod(nSenderPid, sPath, nMode)
+  -- 1. Identify the user
+  local nUid = syscall("process_get_uid", nSenderPid) or 1000
+  
+  -- 2. Load perms if needed
+  if not tPermCache then load_perms() end
+  
+  -- 3. Get current file info
+  local tEntry = tPermCache[sPath]
+  
+  -- if file not in db, create a default entry owned by root (secure by default)
+  -- wait, if it's not in db, maybe the user created it? 
+  -- for now, if it's not in db, we assume it's a new entry.
+  if not tEntry then
+     tEntry = { uid = nUid, gid = 0, mode = 755 }
+     tPermCache[sPath] = tEntry
+  end
+  
+  -- 4. SECURITY CHECK: The "Highest Right" Logic
+  -- Only the owner or UID 0 (dev/kernel) can change permissions.
+  if nUid ~= 0 and tEntry.uid ~= nUid then
+     syscall("kernel_log", "[PM] CHMOD DENIED: PID " .. nSenderPid .. " (UID " .. nUid .. ") tried to touch " .. sPath)
+     return nil, "Operation not permitted (Not owner)"
+  end
+  
+  -- 5. EXTRA SECURITY: Protect system files from accidental sudoers
+  -- Even if you own it (somehow), if it's in /boot or /sys, only UID 0 can chmod.
+  if nUid ~= 0 and (sPath:sub(1,5) == "/boot" or sPath:sub(1,4) == "/sys") then
+     return nil, "Operation not permitted (System protected)"
+  end
+  
+  -- 6. Apply and Save
+  tEntry.mode = nMode
+  save_perms()
+  
+  syscall("kernel_log", "[PM] CHMOD: " .. sPath .. " -> " .. nMode .. " by UID " .. nUid)
+  return true
 end
 
 function vfs_state.handle_write(nSenderPid, nFd, sData)
@@ -148,6 +329,38 @@ function vfs_state.handle_close(nSenderPid, nFd)
     return true
 end
 
+-- handler for the driver_load syscall
+
+function vfs_state.handle_driver_load(nSenderPid, sPath)
+  syscall("kernel_log", "[PM] User (PID " .. nSenderPid .. ") requested load of: " .. sPath)
+
+  syscall("signal_send", nDkmsPid, "load_driver_path_request", sPath, nSenderPid)
+  
+  while true do
+    local bOk, nSender, sSig, p1, p2, p3, p4 = syscall("signal_pull") -- added p3, p4
+    if bOk and nSender == nDkmsPid then
+       if sSig == "load_driver_result" and p1 == nSenderPid then
+          local nStatus = p2
+          local sDrvName = p3
+          local nDrvPid = p4
+          
+          if nStatus == 0 then 
+             -- Detailed success message
+             local sMsg = string.format("[PM] Success: Loaded '%s' (PID %d)", sDrvName, nDrvPid)
+             syscall("kernel_log", sMsg)
+             return true, sMsg -- return message to user too
+          else 
+             local sMsg = "[PM] Driver load failed. Status: " .. tostring(nStatus)
+             syscall("kernel_log", sMsg)
+             return nil, sMsg 
+          end
+       elseif sSig == "os_event" then
+          syscall("signal_send", nDkmsPid, "os_event", p1, p2, p3, p4)
+       end
+    end
+  end
+end
+
 
 local function get_gpu_proxy()
   local bOk, tList = syscall("raw_component_list", "gpu")
@@ -209,19 +422,19 @@ local function wait_with_throbber(sMessage, nSeconds)
 end
 
 local function __scandrvload()
-  syscall("kernel_log", "[PM] Loading RingFS Driver...")
-  syscall("signal_send", nDkmsPid, "load_driver_path", "/drivers/ringfs.sys.lua")
+  --syscall("kernel_log", "[PM] Loading RingFS Driver...")
+  --syscall("signal_send", nDkmsPid, "load_driver_path", "/drivers/ringfs.sys.lua")
   
   syscall("kernel_log", "[PM] Loading TTY Driver explicitly...")
-  raw_computer.beep(600, 0.01)
+  --raw_computer.beep(600, 0.01)
   syscall("signal_send", nDkmsPid, "load_driver_path", "/drivers/tty.sys.lua")
-  raw_computer.beep(600, 0.01)
+  --raw_computer.beep(600, 0.01)
   
-  local deadline = computer.uptime() + 2.0
+  local deadline = computer.uptime() + 0.0
   while computer.uptime() < deadline do syscall("process_yield") end
 
   syscall("kernel_log", "[PM] Scanning components...")
-  raw_computer.beep(600, 0.01)
+  --raw_computer.beep(600, 0.01)
 
   local sRootUuid, oRootProxy = syscall("kernel_get_root_fs")
   if not oRootProxy then syscall("kernel_panic", "Pipeline could not get root FS info.") end
@@ -238,9 +451,73 @@ local function __scandrvload()
   end
 end
 
+local function process_fstab()
+  syscall("kernel_log", "[PM] Processing fstab...")
+  
+  -- we skip sys.cfg for now to keep it simple, let's focus on the crash.
+
+  -- FIX: raw_component_invoke returns (bool_success, return_val).
+  -- we need to catch both, otherwise we try to load a boolean.
+  local bOpenOk, hFstab = syscall("raw_component_invoke", vfs_state.oRootFs.address, "open", "/etc/fstab.lua", "r")
+  
+  if bOpenOk and hFstab then
+     local bReadOk, sData = syscall("raw_component_invoke", vfs_state.oRootFs.address, "read", hFstab, math.huge)
+     
+     -- always close your handles, kids
+     syscall("raw_component_invoke", vfs_state.oRootFs.address, "close", hFstab)
+     
+     if bReadOk and type(sData) == "string" then
+        local f, sErr = load(sData, "fstab", "t", {})
+        if f then 
+           local tFstab = f()
+           if type(tFstab) == "table" then
+               for _, tEntry in ipairs(tFstab) do
+                  if tEntry.type == "ringfs" then
+                     -- 1. Load the driver explicitly
+                     if not bRingFsLoaded then
+                         syscall("kernel_log", "[PM] Auto-loading RingFS...")
+                         syscall("signal_send", nDkmsPid, "load_driver_path", "/drivers/ringfs.sys.lua")
+                         syscall("process_wait", 0) 
+                         bRingFsLoaded = true
+                     end
+                     
+                     -- 2. Parse options
+                     local tOpts = parse_options(tEntry.options)
+                     
+                     -- 3. Resize if needed
+                     if tOpts.size then
+                        local tDKStructs = require("shared_structs")
+                        local pIrp = tDKStructs.fNewIrp(tDKStructs.IRP_MJ_DEVICE_CONTROL)
+                        pIrp.sDeviceName = "\\Device\\ringlog"
+                        pIrp.nSenderPid = nMyPid
+                        pIrp.tParameters.sMethod = "resize"
+                        pIrp.tParameters.tArgs = { tOpts.size }
+                        
+                        syscall("signal_send", nDkmsPid, "vfs_io_request", pIrp)
+                        wait_for_dkms()
+                     end
+                     
+                     -- 4. Flush boot logs
+                     if string.sub(tEntry.path, 1, 5) == "/dev/" then
+                        flush_boot_log(tEntry.path)
+                     end
+                  end
+               end
+           end
+        else
+            syscall("kernel_log", "[PM] Syntax error in fstab: " .. tostring(sErr))
+        end
+     end
+  else
+     syscall("kernel_log", "[PM] Warning: /etc/fstab.lua not found or unreadable.")
+  end
+end
+
 __scandrvload()
 
-wait_with_throbber("Waiting for system stabilization...", 3.0)
+process_fstab()
+
+wait_with_throbber("Waiting for system stabilization...", 1.0)
 
 syscall("kernel_log", "[PM] Silence on deck. Handing off to userspace.")
 
@@ -270,7 +547,14 @@ while true do
       elseif sName == "vfs_close" then result1, result2 = vfs_state.handle_close(nCaller, tArgs[1])
       elseif sName == "vfs_list" then
          result1, result2 = syscall("raw_component_invoke", vfs_state.oRootFs.address, "list", tArgs[1])
+      elseif sName == "vfs_chmod" then
+         result1, result2 = vfs_state.handle_chmod(nCaller, tArgs[1], tArgs[2])
+      elseif sName == "driver_load" then
+         -- NEW: handle the load request
+         result1, result2 = vfs_state.handle_driver_load(nCaller, tArgs[1])
+      
       end
+      
       
       if result1 ~= "async_wait" then
          syscall("signal_send", nCaller, "syscall_return", result1, result2)

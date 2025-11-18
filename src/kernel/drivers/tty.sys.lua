@@ -40,19 +40,28 @@ local function printChunk(pExt, sText)
       pExt.nCursorX = pExt.nCursorX + #sText
       if pExt.nCursorX > pExt.nWidth then
          pExt.nCursorX = 1
-         pExt.nCursorY = pExt.nCursorY + 1
-         if pExt.nCursorY > pExt.nHeight then scroll(pExt) end
+         if pExt.nCursorY < pExt.nHeight then
+             pExt.nCursorY = pExt.nCursorY + 1
+         else
+             scroll(pExt)
+         end
       end
   else
       local sPart1 = string.sub(sText, 1, nRem)
       local sPart2 = string.sub(sText, nRem + 1)
       g_oGpuProxy.set(pExt.nCursorX, pExt.nCursorY, sPart1)
+      
       pExt.nCursorX = 1
-      pExt.nCursorY = pExt.nCursorY + 1
-      if pExt.nCursorY > pExt.nHeight then scroll(pExt) end
+      if pExt.nCursorY < pExt.nHeight then
+          pExt.nCursorY = pExt.nCursorY + 1
+      else
+          scroll(pExt)
+      end
+      
       printChunk(pExt, sPart2)
   end
 end
+
 
 local function writeToScreen(pDeviceObject, sData)
   if not g_oGpuProxy then return end
@@ -78,13 +87,18 @@ local function writeToScreen(pDeviceObject, sData)
       
       if nByte == 10 then -- \n
           pExt.nCursorX = 1
-          pExt.nCursorY = pExt.nCursorY + 1
-          if pExt.nCursorY > pExt.nHeight then scroll(pExt) end
+          if pExt.nCursorY < pExt.nHeight then
+              pExt.nCursorY = pExt.nCursorY + 1
+          else
+              scroll(pExt)
+          end
           
       elseif nByte == 13 then -- \r
           pExt.nCursorX = 1
           
       elseif nByte == 12 then -- \f
+          g_oGpuProxy.setBackground(0x000000)
+          g_oGpuProxy.setForeground(0xFFFFFF)
           g_oGpuProxy.fill(1, 1, pExt.nWidth, pExt.nHeight, " ")
           pExt.nCursorX = 1
           pExt.nCursorY = 1
@@ -105,6 +119,7 @@ local function writeToScreen(pDeviceObject, sData)
                       g_oGpuProxy.setForeground(tAnsiColors[nColor])
                   elseif sCode == "0" or sCode == "" then
                       g_oGpuProxy.setForeground(0xFFFFFF)
+                      g_oGpuProxy.setBackground(0x000000)
                   end
                   nNextStart = nEndAnsi + 1
               end
@@ -114,7 +129,6 @@ local function writeToScreen(pDeviceObject, sData)
       nStart = nNextStart
   end
 end
-
 -------------------------------------------------
 -- HANDLERS
 -------------------------------------------------
@@ -159,14 +173,20 @@ function DriverEntry(pObj)
   if gpu then
      local _, p = oKMD.DkGetHardwareProxy(gpu)
      g_oGpuProxy = p
-     if scr and p then
+  if scr and p then
          p.bind(scr)
          local w, h = p.getResolution()
-         p.fill(1,1,w,h," ")
+         
+         p.setBackground(0x000000)
+         p.setForeground(0xFFFFFF)
+         
+         -- p.fill(1,1,w,h," ")
+         
          dev.pDeviceExtension.nWidth = w
          dev.pDeviceExtension.nHeight = h
+         
          dev.pDeviceExtension.nCursorX = 1
-         dev.pDeviceExtension.nCursorY = 1
+         dev.pDeviceExtension.nCursorY = h 
      end
   else
      oKMD.DkPrint("TTY Warning: No GPU found")
