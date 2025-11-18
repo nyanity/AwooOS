@@ -68,7 +68,10 @@ end
 function tSyscallHandlers.dkms_complete_irp(nCallerPid, pIrp, nStatusOverride)
     if not pIrp then return tStatus.STATUS_INVALID_PARAMETER end
     if nStatusOverride then pIrp.tIoStatus.nStatus = nStatusOverride end
-    syscall("signal_send", pIrp.nSenderPid, "syscall_return", true, pIrp.tIoStatus.nStatus, pIrp.tIoStatus.vInformation)
+    
+    -- init would get true (from PM), nStatus, vInformation
+    syscall("signal_send", pIrp.nSenderPid, "syscall_return", pIrp.tIoStatus.nStatus, pIrp.tIoStatus.vInformation)
+    
     g_tPendingIrps[pIrp.nSenderPid] = nil
     return tStatus.STATUS_SUCCESS
 end
