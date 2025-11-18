@@ -1,20 +1,22 @@
 --
 -- /system/lib/dk/kmd_api.lua
 --
+
 local fSyscall = syscall
 local tStatus = require("errcheck")
 local oKMD = require("common_api") 
 
 local function CallDkms(sName, ...)
-  -- intercepted syscalls return: true (from the scheduler), result...
   local bOk, val1, val2 = fSyscall(sName, ...)
   return val1, val2
 end
 
 function oKMD.DkCreateDevice(pDriverObject, sDeviceName)
   oKMD.DkPrint("DkCreateDevice: " .. sDeviceName)
-  -- wrapping
-  local pDeviceObject, nStatus = CallDkms("dkms_create_device", pDriverObject.nDriverPid, sDeviceName)
+  
+  -- FIX: Removed pDriverObject.nDriverPid.
+  -- DKMS will automatically determine the caller's PID.
+  local pDeviceObject, nStatus = CallDkms("dkms_create_device", sDeviceName)
   
   if pDeviceObject then
     return tStatus.STATUS_SUCCESS, pDeviceObject
@@ -47,7 +49,7 @@ function oKMD.DkCompleteRequest(pIrp, nStatus, vInformation)
 end
 
 function oKMD.DkGetHardwareProxy(sAddress)
-    -- raw_component_proxy is a DIRECT syscall, it does NOT return an extra true
+    -- вirect syscall, returns data immediately
     local oProxyOrErr, sErr = fSyscall("raw_component_proxy", sAddress)
     if oProxyOrErr then
         return tStatus.STATUS_SUCCESS, oProxyOrErr

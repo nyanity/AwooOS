@@ -60,6 +60,7 @@ while true do
   if not tPasswordDb then
     syscall("process_yield") -- wait and retry, maybe it'll exist later
   else
+    fWrite("\f") 
     fWrite("Welcome to AwooOS\n")
     fWrite("Login: ")
     local sUsername = fRead()

@@ -32,6 +32,7 @@ local kernel = {
 
 local g_nCurrentPid = 0 -- tracks the currently executing process. super important for context.
 local g_nDebugY = 2 -- global var for screen line tracking. super primitive.
+local g_bLogToScreen = true
 
 local g_oGpu = nil
 local g_nWidth, g_nHeight = 80, 25 -- Default values
@@ -110,6 +111,7 @@ function kprint(sLevel, ...)
   table.insert(kernel.tBootLog, sFullLogMessage)
 
   -- 3. If we don't have a GPU, we're done here.
+  if not g_bLogToScreen then return end
   if not g_oGpu then return end
 
   -- 4. Handle scrolling
@@ -676,6 +678,15 @@ kernel.tSyscallTable["kernel_get_boot_log"] = {
   end,
   allowed_rings = {1, 2} -- for TTY driver
 }
+
+kernel.tSyscallTable["kernel_set_log_mode"] = {
+  func = function(nPid, bEnable)
+    g_bLogToScreen = bEnable
+    return true
+  end,
+  allowed_rings = {0, 1}
+}
+
 kernel.tSyscallTable["syscall_override"] = {
   func = function(nPid, sSyscallName)
     -- the calling process (nPid) now handles this syscall

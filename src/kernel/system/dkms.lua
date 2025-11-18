@@ -108,12 +108,14 @@ function load_driver(sDriverPath, tDriverEnv)
   pDriverObject.nDriverPid = nPid
   pDriverObject.tDriverInfo = tDriverInfo
   
+  -- register the driver IMMEDIATELY so that it can call DkCreateDevice
+  g_tDriverRegistry[sDriverPath] = pDriverObject
+  
   syscall("signal_send", nPid, "driver_init", pDriverObject)
   
   while true do
       local bOk, nSenderPid, sSignalName, p1, p2, p3, p4 = syscall("signal_pull")
       if bOk then
-          -- if init finished exit
           if sSignalName == "driver_init_complete" and nSenderPid == nPid then
               local nEntryStatus = p1
               local pInitializedDriverObject = p2
@@ -124,21 +126,18 @@ function load_driver(sDriverPath, tDriverEnv)
                   return tStatus.STATUS_SUCCESS
               else
                   syscall("kernel_log", "[DKMS] Err: DriverEntry failed: " .. tostring(nEntryStatus))
+                  g_tDriverRegistry[sDriverPath] = nil
                   return nEntryStatus or tStatus.STATUS_DRIVER_INIT_FAILED
               end
               
-          -- death
           elseif sSignalName == "syscall" then
               local tData = p1
               local fHandler = tSyscallHandlers[tData.name]
               if fHandler then
-                   -- calling 📞📞
                    local ret1, ret2 = fHandler(tData.sender_pid, table.unpack(tData.args))
-                   -- hello wake up driver driver send us DriverEntry()
                    syscall("signal_send", tData.sender_pid, "syscall_return", ret1, ret2)
               end
               
-          -- buffering
           else
               table.insert(g_tSignalQueue, {nSenderPid, sSignalName, p1, p2, p3, p4})
           end

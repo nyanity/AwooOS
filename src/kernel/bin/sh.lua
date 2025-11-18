@@ -1,28 +1,33 @@
 --
 -- /bin/sh.lua
--- the shell. where the user gets to break things.
+-- The Shell
 --
 
-local oFs = require("lib/filesystem")
-local oSys = require("lib/syscall")
+local oFs = require("filesystem")
+local oSys = require("syscall") 
 
--- standard file descriptors
-local hStdin = { fd = 0 }
-local hStdout = { fd = 1 }
-local hStderr = { fd = 2 }
+local hStdin = oFs.open("/dev/tty", "r")
+local hStdout = oFs.open("/dev/tty", "w")
+local hStderr = hStdout 
 
--- shell state
-local sCurrentPath = env.HOME or "/"
-
--- making it look pretty. the '#' for root is a classic.
-local function fGetPrompt()
-  local bIsOk, nRing = oSys.call("process_get_ring")
-  local sUser = env.USER or "user"
-  local sChar = (nRing == 2.5) and "#" or "$"
-  return sUser .. "@auraos:" .. sCurrentPath .. " " .. sChar .. " " -- yes, it say aura. i want so
+if not hStdin or not hStdout then
+    syscall("kernel_panic", "Shell failed to open /dev/tty")
 end
 
--- chop chop chop.
+-- shell state
+local sCurrentPath = (env and env.HOME) or "/"
+
+local function fTrim(s)
+  return (s:gsub("^%s*(.-)%s*$", "%1"))
+end
+
+local function fGetPrompt()
+  local nRing = syscall("process_get_ring")
+  local sUser = (env and env.USER) or "user"
+  local sChar = (nRing == 2.5) and "#" or "$"
+  return sUser .. "@auraos:" .. sCurrentPath .. " " .. sChar .. " "
+end
+
 local function fSplitCommand(sLine)
   local tArgs = {}
   for sArg in string.gmatch(sLine, "[^%s]+") do
@@ -34,12 +39,10 @@ end
 -- Built-in commands
 local tBuiltins = {}
 
--- let's go on an adventure.
 function tBuiltins.cd(tArgs)
-  local sPath = tArgs[1] or env.HOME
-  -- TODO: Path resolution (.., ., ~)
-  local bIsOk, tList = oFs.list(sPath)
-  if bIsOk and tList then -- Check if dir exists
+  local sPath = tArgs[1] or (env and env.HOME) or "/"
+  local tList = oFs.list(sPath)
+  if tList then 
     sCurrentPath = sPath
   else
     oFs.write(hStderr, "cd: No such directory: " .. sPath .. "\n")
@@ -47,53 +50,63 @@ function tBuiltins.cd(tArgs)
   return true
 end
 
--- see ya!
 function tBuiltins.exit()
-  return false -- Signal to exit loop
+  return false 
+end
+
+function tBuiltins.help()
+    oFs.write(hStdout, "AuraOS Shell v0.1\nBuiltins: cd, exit, help\n")
+    return true
 end
 
 -- main shell loop
--- read, parse, execute, repeat. the circle of life.
 while true do
   oFs.write(hStdout, fGetPrompt())
-  local bIsOk, sLine = oFs.read(hStdin)
+  
+  local sLine = oFs.read(hStdin)
   
   if sLine then
-    local tArgs = fSplitCommand(sLine)
-    local sCmd = table.remove(tArgs, 1)
+    sLine = fTrim(sLine)
     
-    if sCmd then
-      local fBuiltin = tBuiltins[sCmd]
-      if fBuiltin then
-        if not fBuiltin(tArgs) then
-          break -- exit
-        end
-      else
-        -- Not a builtin, try to execute from the filesystem
-        local sCmdPath = "/usr/commands/" .. sCmd .. ".lua"
+    if #sLine > 0 then
+        local tArgs = fSplitCommand(sLine)
+        local sCmd = table.remove(tArgs, 1)
         
-        -- Check if file exists
-        local hFile, sErr = oFs.open(sCmdPath, "r")
-        if hFile then
-          oFs.close(hFile)
-          local bRingOk, nRing = oSys.call("process_get_ring")
-          local bSpawnOk, nPid, sSpawnErr = oSys.call("process_spawn", sCmdPath, nRing, {
-            PATH = sCurrentPath,
-            USER_ENV = env,
-            ARGS = tArgs,
-          })
-          if nPid then
-            oSys.call("process_wait", nPid)
+        if sCmd then
+          local fBuiltin = tBuiltins[sCmd]
+          if fBuiltin then
+            if not fBuiltin(tArgs) then
+              break -- exit command called
+            end
           else
-            oFs.write(hStderr, "exec failed: " .. sSpawnErr .. "\n")
+            -- Try external command
+            local sCmdPath = "/usr/commands/" .. sCmd .. ".lua"
+            local hFile = oFs.open(sCmdPath, "r")
+            if hFile then
+              oFs.close(hFile)
+              local nRing = syscall("process_get_ring")
+              
+              local nPid, sSpawnErr = syscall("process_spawn", sCmdPath, nRing, {
+                PATH = sCurrentPath,
+                USER_ENV = env,
+                ARGS = tArgs,
+              })
+              
+              if nPid then
+                syscall("process_wait", nPid)
+              else
+                oFs.write(hStderr, "exec failed: " .. tostring(sSpawnErr) .. "\n")
+              end
+            else
+              oFs.write(hStderr, "command not found: " .. sCmd .. "\n")
+            end
           end
-        else
-          oFs.write(hStderr, "command not found: " .. sCmd .. "\n")
         end
-      end
     end
   else
-    -- EOF (e.g., Ctrl+D, if TTY supported it)
     break
   end
 end
+
+oFs.close(hStdin)
+oFs.close(hStdout)
