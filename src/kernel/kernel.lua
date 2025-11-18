@@ -998,7 +998,6 @@ while true do
           tProcess.status = "dead"
         end
       end
-      kernel.panic(tostring(sErrOrSignalName), tProcess.co)
       if tProcess.status == "dead" then
         -- wake up any processes that were waiting for this one to die
         for _, nWaiterPid in ipairs(tProcess.wait_queue or {}) do
