@@ -209,6 +209,9 @@ local function wait_with_throbber(sMessage, nSeconds)
 end
 
 local function __scandrvload()
+  syscall("kernel_log", "[PM] Loading RingFS Driver...")
+  syscall("signal_send", nDkmsPid, "load_driver_path", "/drivers/ringfs.sys.lua")
+  
   syscall("kernel_log", "[PM] Loading TTY Driver explicitly...")
   raw_computer.beep(600, 0.01)
   syscall("signal_send", nDkmsPid, "load_driver_path", "/drivers/tty.sys.lua")
@@ -273,10 +276,7 @@ while true do
          syscall("signal_send", nCaller, "syscall_return", result1, result2)
       end
 
-    -- 2. НОВОЕ: Пересылка событий оборудования в DKMS
     elseif sSignal == "os_event" then
-       -- p1=eventName, p2=addr, p3=char, p4=code ...
-       -- Просто пересылаем как есть диспетчеру драйверов
        syscall("signal_send", nDkmsPid, "os_event", p1, p2, p3, p4, p5)
     end
   end

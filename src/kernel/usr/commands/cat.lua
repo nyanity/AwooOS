@@ -11,12 +11,10 @@ for _, sPath in ipairs(tArgs) do
   if sPath:sub(1,1) ~= "/" then
     sPath = (env.PWD or "/") .. sPath
   end
-  -- Убираем двойные слеши
   sPath = sPath:gsub("//", "/")
 
   local hFile = fs.open(sPath, "r")
   if hFile then
-    -- Читаем целиком
     local sData = fs.read(hFile, math.huge)
     if sData then
       io.write(sData)

@@ -31,7 +31,7 @@ end
 
 local function printChunk(pExt, sText)
   if #sText == 0 or not g_oGpuProxy then return end
-  if not pExt.nWidth then return end -- Защита от неинициализированного экрана
+  if not pExt.nWidth then return end
 
   local nRem = pExt.nWidth - pExt.nCursorX + 1
   

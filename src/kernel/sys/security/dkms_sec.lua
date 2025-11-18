@@ -5,6 +5,7 @@
 --
 
 local tStatus = require("errcheck")
+local tDKStructs = require("shared_structs")
 local oSec = {}
 
 -- right now, our security is... trusting.
@@ -25,9 +26,14 @@ function oSec.fValidateDriverInfo(tDriverInfo)
   if type(tDriverInfo.sDriverType) ~= "string" then
     return tStatus.STATUS_INVALID_DRIVER_INFO, "Missing sDriverType"
   end
-  if tDriverInfo.sDriverType ~= "KernelModeDriver" and tDriverInfo.sDriverType ~= "UserModeDriver" then
-    return tStatus.STATUS_INVALID_DRIVER_TYPE, "sDriverType must be KernelModeDriver or UserModeDriver"
+  
+  -- check against the holy trinity of driver types
+  if tDriverInfo.sDriverType ~= tDKStructs.DRIVER_TYPE_KMD and 
+     tDriverInfo.sDriverType ~= tDKStructs.DRIVER_TYPE_UMD and
+     tDriverInfo.sDriverType ~= tDKStructs.DRIVER_TYPE_CMD then
+    return tStatus.STATUS_INVALID_DRIVER_TYPE, "Unknown sDriverType: " .. tostring(tDriverInfo.sDriverType)
   end
+  
   if type(tDriverInfo.nLoadPriority) ~= "number" then
     return tStatus.STATUS_INVALID_DRIVER_INFO, "Missing or invalid nLoadPriority"
   end

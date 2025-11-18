@@ -15,8 +15,9 @@ oDK.IRP_MJ_WRITE = 0x04
 oDK.IRP_MJ_DEVICE_CONTROL = 0x0E
 
 -- Driver Types
-oDK.DRIVER_TYPE_KMD = "KernelModeDriver" -- Ring 0-2, full power
-oDK.DRIVER_TYPE_UMD = "UserModeDriver"   -- Ring 3, sandboxed
+oDK.DRIVER_TYPE_KMD = "KernelModeDriver"    -- Ring 0-2, full power, god mode enabled
+oDK.DRIVER_TYPE_UMD = "UserModeDriver"      -- Ring 3, sandboxed, playing with plastic toys
+oDK.DRIVER_TYPE_CMD = "ComponentModeDriver" -- Ring 2, strict hardware binding. no address? no entry.
 
 -- The DRIVER_OBJECT
 -- this is the driver's soul. it represents the loaded driver image.

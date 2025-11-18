@@ -27,7 +27,6 @@ end
 
 oFsLib.write = function(hHandle, sData)
   if not hHandle or not hHandle.fd then return nil, "Invalid handle" end
-  -- write возвращает (true, nBytes)
   local bSys, bVfs, valResult = syscall("vfs_write", hHandle.fd, sData)
   return bSys and bVfs, valResult
 end

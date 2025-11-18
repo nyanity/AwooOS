@@ -11,11 +11,13 @@ local oDispatcher = require("driverdispatch")
 
 syscall("kernel_log", "[DKMS] Ring 1 Driver Manager starting.")
 
-local g_tDriverRegistry = {} 
-local g_tDeviceTree = {}     
-local g_tSymbolicLinks = {}  
-local g_tPendingIrps = {}    
+local g_tDriverRegistry = {}
+local g_tDeviceTree = {}
+local g_tSymbolicLinks = {}
+local g_tPendingIrps = {}
 local g_tSignalQueue = {}
+
+local g_tDeviceTypeCounters = {}
 -- ====================================
 
 -- Syscall Overrides
@@ -25,6 +27,8 @@ syscall("syscall_override", "dkms_delete_device")
 syscall("syscall_override", "dkms_delete_symlink")
 syscall("syscall_override", "dkms_complete_irp")
 syscall("syscall_override", "dkms_register_interrupt")
+
+syscall("syscall_override", "dkms_get_next_index") 
 
 local tSyscallHandlers = {}
 
@@ -81,6 +85,20 @@ function tSyscallHandlers.dkms_register_interrupt(nCallerPid, sEventName)
     return tStatus.STATUS_SUCCESS
 end
 
+function tSyscallHandlers.dkms_get_next_index(nCallerPid, sDeviceType)
+    if not sDeviceType then return nil, tStatus.STATUS_INVALID_PARAMETER end
+    
+    if not g_tDeviceTypeCounters[sDeviceType] then
+        g_tDeviceTypeCounters[sDeviceType] = 0
+    end
+    
+    local nIndex = g_tDeviceTypeCounters[sDeviceType]
+    g_tDeviceTypeCounters[sDeviceType] = nIndex + 1
+    
+    return nIndex, tStatus.STATUS_SUCCESS
+end
+
+
 function load_driver(sDriverPath, tDriverEnv)
   syscall("kernel_log", "[DKMS] Loading: " .. sDriverPath)
   
@@ -99,7 +117,17 @@ function load_driver(sDriverPath, tDriverEnv)
   nStatus, sErr = oSec.fValidateDriverInfo(tDriverInfo)
   if nStatus ~= tStatus.STATUS_SUCCESS then return nStatus end
   
-  local nRing = (tDriverInfo.sDriverType == tDKStructs.DRIVER_TYPE_KMD) and 2 or 3
+  -- ISOLATION LOGIC HERE
+  -- if it's a component driver, verify we actually have a component address.
+  if tDriverInfo.sDriverType == tDKStructs.DRIVER_TYPE_CMD then
+     if not tDriverEnv or not tDriverEnv.address then
+        syscall("kernel_log", "[DKMS] SECURITY: Blocked loading of CMD '" .. tDriverInfo.sDriverName .. "' without component address.")
+        return tStatus.STATUS_INVALID_PARAMETER
+     end
+  end
+  
+  -- CMDs run at Ring 2 (Kernel Mode), same as KMDs, but with stricter init reqs.
+  local nRing = (tDriverInfo.sDriverType == tDKStructs.DRIVER_TYPE_UMD) and 3 or 2
   local nPid, sSpawnErr = syscall("process_spawn", sDriverPath, nRing, tDriverEnv)
   if not nPid then return tStatus.STATUS_DRIVER_INIT_FAILED end
   
@@ -191,6 +219,8 @@ while true do
 
   elseif sSignalName == "load_driver_path" then
       local sPath = p1
+      -- loading via path implies generic KMD/UMD. 
+      -- if the driver at sPath is a CMD, load_driver will reject it because env is empty.
       load_driver(sPath, {})
 
   elseif sSignalName == "os_event" and p1 == "key_down" then

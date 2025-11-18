@@ -440,7 +440,6 @@ function kernel.create_sandbox(nPid, nRing)
       for i = 1, select("#", ...) do
         tParts[i] = tostring(select(i, ...))
       end
-      -- Правильно: пишем в stdout (fd=1) через VFS
       kernel.syscall_dispatch("vfs_write", 1, table.concat(tParts, "\t") .. "\n")
     end,
   }

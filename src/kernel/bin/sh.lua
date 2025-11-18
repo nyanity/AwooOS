@@ -6,20 +6,17 @@
 local oFs = require("filesystem")
 local oSys = require("syscall")
 
--- Инициализация потоков
 local hStdin = oFs.open("/dev/tty", "r")
 local hStdout = oFs.open("/dev/tty", "w")
 local hStderr = hStdout
 
 if not hStdin then syscall("kernel_panic", "SH: No TTY") end
 
--- Окружение
 local ENV = env or {}
 ENV.PWD = ENV.PWD or "/"
 ENV.PATH = ENV.PATH or "/usr/commands"
 ENV.USER = ENV.USER or "user"
 
--- Разбор строки с учетом кавычек
 local function parseLine(line)
   local args = {}
   local current = ""
@@ -41,11 +38,9 @@ local function parseLine(line)
   return args
 end
 
--- Получение промпта
 local function getPrompt()
   local r = syscall("process_get_ring")
   local char = (r == 2.5) and "#" or "$"
-  -- Сокращаем /home/user до ~
   local path = ENV.PWD
   if ENV.HOME and path:sub(1, #ENV.HOME) == ENV.HOME then
      path = "~" .. path:sub(#ENV.HOME + 1)
@@ -53,9 +48,8 @@ local function getPrompt()
   return string.format("\n\27[32m%s@%s\27[37m:\27[34m%s\27[37m%s ", ENV.USER, ENV.HOSTNAME or "box", path, char)
 end
 
--- Поиск исполняемого файла
+
 local function findExecutable(cmd)
-  -- Если путь абсолютный или относительный (./), проверяем сразу
   if cmd:sub(1,1) == "/" or cmd:sub(1,2) == "./" then
      local path = cmd
      if path:sub(1,2) == "./" then path = ENV.PWD .. path:sub(2) end
@@ -63,10 +57,8 @@ local function findExecutable(cmd)
      return nil
   end
 
-  -- Ищем в PATH
   for path in string.gmatch(ENV.PATH, "[^:]+") do
      local full = path .. "/" .. cmd .. ".lua"
-     -- Проверяем существование открытием
      local h = oFs.open(full, "r")
      if h then
         oFs.close(h)
@@ -76,13 +68,11 @@ local function findExecutable(cmd)
   return nil
 end
 
--- Встроенные команды
 local builtins = {}
 
 function builtins.cd(args)
    local newDir = args[1] or ENV.HOME
    if newDir == ".." then
-      -- Очень примитивная логика для .., надо бы нормальный path resolver сделать
       ENV.PWD = ENV.PWD:match("(.*/)[^/]+/?$") or "/"
       if ENV.PWD:sub(#ENV.PWD) == "/" and #ENV.PWD > 1 then 
          ENV.PWD = ENV.PWD:sub(1, -2) 
@@ -90,7 +80,6 @@ function builtins.cd(args)
       return true
    end
    
-   -- Нормализация
    if newDir:sub(1,1) ~= "/" then newDir = ENV.PWD .. (ENV.PWD == "/" and "" or "/") .. newDir end
    
    local list = oFs.list(newDir)
