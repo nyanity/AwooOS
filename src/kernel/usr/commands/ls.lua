@@ -1,17 +1,19 @@
-local fs = require("lib/filesystem")
-local path = (env.ARGS and env.ARGS[1]) or env.PATH or "/"
+-- ls - list directory
+local fs = require("filesystem")
+local sDir = ((env.ARGS and env.ARGS[1]) or env.PWD or "/")
 
-local stdout = { fd = 1 }
-local stderr = { fd = 2 }
+local hStdout = { fd = 1 }
 
-local list, err = fs.list(path)
-if not list then
-  fs.write(stderr, "ls: cannot access " .. path .. ": " .. err .. "\n")
+local tList, sErr = fs.list(sDir)
+
+if not tList or type(tList) ~= "table" then
+  fs.write(hStdout, "ls: cannot access '" .. sDir .. "': " .. tostring(sErr or "No such file") .. "\n")
   return
 end
 
-local output = ""
-for _, item in ipairs(list) do
-  output = output .. item .. "\t"
+table.sort(tList)
+
+for _, sFile in ipairs(tList) do
+  fs.write(hStdout, sFile .. "\t") 
 end
-fs.write(stdout, output .. "\n")
+fs.write(hStdout, "\n")

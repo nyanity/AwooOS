@@ -1,4 +1,4 @@
-local sys = require("lib/syscall")
+local sys = require("syscall")
 local ring = syscall("process_get_ring")
 
 if ring == 2.5 or ring == 0 then

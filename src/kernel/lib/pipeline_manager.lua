@@ -240,7 +240,7 @@ __scandrvload()
 wait_with_throbber("Waiting for system stabilization...", 3.0)
 
 syscall("kernel_log", "[PM] Silence on deck. Handing off to userspace.")
-raw_computer.beep(600, 0.01)
+
 syscall("kernel_set_log_mode", false)
 
 syscall("kernel_log", "[PM] Spawning /bin/init.lua...")
@@ -248,7 +248,7 @@ local nInitPid, sInitErr = syscall("process_spawn", "/bin/init.lua", 3)
 
 if not nInitPid then syscall("kernel_log", "[PM] FAILED TO SPAWN INIT: " .. tostring(sInitErr))
 else syscall("kernel_log", "[PM] Init spawned as PID " .. tostring(nInitPid)) end
-raw_computer.beep(600, 0.01)
+
 
 while true do
   local bOk, nSender, sSignal, p1, p2, p3, p4, p5 = syscall("signal_pull")

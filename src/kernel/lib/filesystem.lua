@@ -1,26 +1,24 @@
 --
 -- /lib/filesystem.lua
--- a friendly wrapper around the vfs syscalls. makes file stuff less scary.
 --
 
 local oFsLib = {}
 
 oFsLib.open = function(sPath, sMode)
-  local bSyscallOk, bVfsOk, valResult = syscall("vfs_open", sPath, sMode or "r")
+  local bSys, bVfs, valResult = syscall("vfs_open", sPath, sMode or "r")
   
-  if bSyscallOk and bVfsOk then
-    -- wrap the numeric file descriptor in a handle table
+  if bSys and bVfs and type(valResult) == "number" then
     return { fd = valResult }
   else
-    return nil, valResult
+    return nil, valResult -- valResult is the error text
   end
 end
 
 oFsLib.read = function(hHandle, nCount)
   if not hHandle or not hHandle.fd then return nil, "Invalid handle" end
-  local bSyscallOk, bVfsOk, valResult = syscall("vfs_read", hHandle.fd, nCount or math.huge)
-
-  if bSyscallOk and bVfsOk then
+  local bSys, bVfs, valResult = syscall("vfs_read", hHandle.fd, nCount or math.huge)
+  
+  if bSys and bVfs then
     return valResult
   else
     return nil, valResult
@@ -29,22 +27,24 @@ end
 
 oFsLib.write = function(hHandle, sData)
   if not hHandle or not hHandle.fd then return nil, "Invalid handle" end
-  return syscall("vfs_write", hHandle.fd, sData)
+  -- write возвращает (true, nBytes)
+  local bSys, bVfs, valResult = syscall("vfs_write", hHandle.fd, sData)
+  return bSys and bVfs, valResult
 end
 
 oFsLib.close = function(hHandle)
-  if not hHandle or not hHandle.fd then return nil, "Invalid handle" end
-  
-  return syscall("vfs_close", hHandle.fd)
+  if not hHandle or not hHandle.fd then return nil end
+  local bSys, bVfs = syscall("vfs_close", hHandle.fd)
+  return bSys and bVfs
 end
 
 oFsLib.list = function(sPath)
-  local bSyscallOk, bVfsOk, valResult = syscall("vfs_list", sPath)
+  local bSys, bVfs, valResult = syscall("vfs_list", sPath)
   
-  if bSyscallOk and bVfsOk then
-    return valResult
+  if bSys and bVfs and type(valResult) == "table" then
+     return valResult
   else
-    return nil, valResult
+     return nil, valResult
   end
 end
 

@@ -667,7 +667,7 @@ kernel.tSyscallTable["kernel_log"] = {
     kprint("info", tostring(sMessage))
     return true
   end,
-  allowed_rings = {0, 1, 2} -- let the kernel, pipeline manager, AND DRIVERS write to the log
+  allowed_rings = {0, 1, 2, 3} -- let the kernel, pipeline manager, AND DRIVERS write to the log
 }
 
 kernel.tSyscallTable["kernel_get_boot_log"] = {
