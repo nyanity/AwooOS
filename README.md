@@ -1,4 +1,47 @@
-    
+<p align="center"> AwooOS Logo Image Placeholder </p>
+
+----------
+
+ **AwooOS** - an *open-source*, *Linux-like*, *full-featured* operating system written in Lua for the [OpenComputers](https://github.com/MightyPirates/OpenComputers) mod.
+
+# **The project includes several parts**:
+*   **Kernel**: The most important and complex part of the project. It is the system itself.
+*   **Installer**: An advanced installer that can be run on a variety of other operating systems, created by the OC community.
+*   **Bios**: The start-up shaft of the entire system. It is written to your computer's EEPROM.
+*   **Packages**: Official and verified packages that are downloaded via a separate package manager and are optional 
+
+# Features
+*   **Custom BIOS (EEPROM)**: Wrote our own BIOS, with extremely flexible and deep settings for launching the system kernel.
+*   **Rings**: Protection rings model implemented. (*Kernel Mode, Pipes, Driver Mode, User Mode*)
+*   **Driver Model**: Support for drivers in *kernel mode* (KMDF) and *user mode* (UMDF).
+*   **Virtual Filesystem(VFS)**: An abstract layer for working with different file systems.
+*   **Sandbox**: Allows processes to be run in a *sandbox* and *isolated* from each other.
+*   **Multithreading**: The ability to launch *multiple threads* and perform work *in parallel.**
+    * It works through coroutines, so it's not true multithreading, but it's only what we have.
+*   **Linux-like user environment**: Environment, commands, shortcuts, and behaviour are the same as you remember. 
+*   **Advanced and pretty GUI**: A *visually appealing* and *user-friendly* GUI that allows you to forget you are working in OpenComputers.
+
+# Installation
+
+*Check that your OC's computer has an Internet Card and that your environment has software that allows you to make internet requests*
+
+## Installing from Github
+
+*   **OpenOS**
+
+```
+wget https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/main/src/iso/installer.lua install.lua
+install
+```
+
+## Installing via OC's Package Managers
+
+*   **OPPM**
+
+```
+Soon™
+```
+
 # AwooOS Technical Documentation
 
 ## Table of Contents
