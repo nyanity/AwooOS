@@ -98,6 +98,27 @@ function tSyscallHandlers.dkms_get_next_index(nCallerPid, sDeviceType)
     return nIndex, tStatus.STATUS_SUCCESS
 end
 
+local function inspect_driver(sDriverPath)
+  local sCode, sErr = syscall("vfs_read_file", sDriverPath)
+  if not sCode then return nil, tStatus.STATUS_NO_SUCH_FILE end
+  
+  -- FIX: give the inspection sandbox access to require, 
+  -- otherwise drivers calling require() at the top level will crash here.
+  local tTempEnv = { require = require }
+  
+  local fChunk, sLoadErr = load(sCode, "@" .. sDriverPath, "t", tTempEnv)
+  if not fChunk then return nil, tStatus.STATUS_INVALID_DRIVER_OBJECT end
+  
+  -- run the chunk. it might fail if it tries to do actual work, 
+  -- but we only care if it defines g_tDriverInfo.
+  pcall(fChunk)
+  
+  if type(tTempEnv.g_tDriverInfo) ~= "table" then
+     return nil, tStatus.STATUS_INVALID_DRIVER_INFO
+  end
+  
+  return tTempEnv.g_tDriverInfo
+end
 
 function load_driver(sDriverPath, tDriverEnv)
   syscall("kernel_log", "[DKMS] Loading: " .. sDriverPath)
@@ -210,6 +231,21 @@ while true do
             tSyscallHandlers.dkms_complete_irp(0, pIrp, nDispatchStatus)
           end
       end
+  elseif sSignalName == "dkms_list_devices_request" then
+      local nOriginalRequester = p1
+      
+      local tList = {}
+      -- g_tSymbolicLinks keys are like "/dev/tty", "/dev/gpu0"
+      for sLinkPath, sDeviceName in pairs(g_tSymbolicLinks) do
+          -- We strip the "/dev/" prefix to get just the filename
+          local sName = string.match(sLinkPath, "^/dev/(.+)$")
+          if sName then
+             table.insert(tList, sName)
+          end
+      end
+      
+      -- send the list back to PM
+      syscall("signal_send", nSenderPid, "dkms_list_devices_result", nOriginalRequester, tList)
 
   elseif sSignalName == "load_driver_for_component" then
       local sComponentType = p1
@@ -223,25 +259,65 @@ while true do
       -- if the driver at sPath is a CMD, load_driver will reject it because env is empty.
       load_driver(sPath, {})
       
-  elseif sSignalName == "load_driver_path_request" then
+elseif sSignalName == "load_driver_path_request" then
       local sPath = p1
       local nOriginalRequester = p2
       
-      local nStatus = load_driver(sPath, {})
+      -- 1. inspect the driver first
+      local tInfo, nInspectErr = inspect_driver(sPath)
       
-      -- Gather intel on what we just loaded
-      local sDrvName = "Unknown"
-      local nDrvPid = -1
-      
-      -- We look up the registry to find the object we just created
-      local pObj = g_tDriverRegistry[sPath]
-      if pObj then
-         sDrvName = pObj.tDriverInfo.sDriverName or "Unnamed"
-         nDrvPid = pObj.nDriverPid
+      if not tInfo then
+          -- file broken or missing
+          syscall("signal_send", nSenderPid, "load_driver_result", nOriginalRequester, nInspectErr or tStatus.STATUS_UNSUCCESSFUL, "Unknown", -1)
+          goto continue
       end
       
-      -- Sending back: Status, Name, PID
-      syscall("signal_send", nSenderPid, "load_driver_result", nOriginalRequester, nStatus, sDrvName, nDrvPid)
+      -- 2. check for Auto-Discovery (CMD + sSupportedComponent)
+      if tInfo.sDriverType == tDKStructs.DRIVER_TYPE_CMD and tInfo.sSupportedComponent then
+          
+          syscall("kernel_log", "[DKMS] Auto-discovery for type: " .. tInfo.sSupportedComponent)
+          
+          -- scan hardware
+          local bOk, tList = syscall("raw_component_list", tInfo.sSupportedComponent)
+          local nLoadedCount = 0
+          local nLastStatus = tStatus.STATUS_NO_SUCH_DEVICE
+          
+          if bOk and tList then
+              for sAddr, _ in pairs(tList) do
+                  -- try to load for THIS specific address
+                  -- we pass the address in the environment
+                  local nSt = load_driver(sPath, { address = sAddr })
+                  if nSt == tStatus.STATUS_SUCCESS then
+                      nLoadedCount = nLoadedCount + 1
+                  end
+                  nLastStatus = nSt
+              end
+          end
+          
+          if nLoadedCount > 0 then
+             local sMsg = string.format("Auto-loaded %d instances of %s", nLoadedCount, tInfo.sDriverName)
+             -- return success (0) and our custom message as the "Name"
+             syscall("signal_send", nSenderPid, "load_driver_result", nOriginalRequester, tStatus.STATUS_SUCCESS, sMsg, 0)
+          else
+             -- found nothing or failed all
+             syscall("signal_send", nSenderPid, "load_driver_result", nOriginalRequester, nLastStatus, tInfo.sDriverName, -1)
+          end
+          
+      else
+          -- 3. standard Load (KMD, UMD, or manual CMD)
+          -- pass empty env (CMD will fail here if not manual, which is correct security)
+          local nStatus = load_driver(sPath, {})
+          
+          -- find the object to get PID
+          local pObj = g_tDriverRegistry[sPath]
+          local sName = tInfo.sDriverName
+          local nPid = pObj and pObj.nDriverPid or -1
+          
+          syscall("signal_send", nSenderPid, "load_driver_result", nOriginalRequester, nStatus, sName, nPid)
+      end
+      
+      ::continue::
+
 
   elseif sSignalName == "os_event" and p1 == "key_down" then
       for _, pDriver in pairs(g_tDriverRegistry) do

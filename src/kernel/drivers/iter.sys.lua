@@ -11,9 +11,11 @@ local tDKStructs = require("shared_structs")
 
 g_tDriverInfo = {
   sDriverName = "AwooITER",
-  sDriverType = tDKStructs.DRIVER_TYPE_CMD, -- STRICT COMPONENT MODE. No address, no service.
+  sDriverType = tDKStructs.DRIVER_TYPE_CMD,
   nLoadPriority = 300,
   sVersion = "1.0.0-rc1",
+  
+  sSupportedComponent = "ntm_fusion" 
 }
 
 local g_pDeviceObject = nil

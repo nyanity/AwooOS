@@ -309,6 +309,43 @@ function vfs_state.handle_read(nSenderPid, nFd, nCount)
   end
 end
 
+    
+function vfs_state.handle_list(nSenderPid, sPath)
+  -- Clean up path (remove trailing slash for check)
+  local sCleanPath = sPath
+  if #sCleanPath > 1 and string.sub(sCleanPath, -1) == "/" then
+     sCleanPath = string.sub(sCleanPath, 1, -2)
+  end
+
+  -- INTERCEPTION: If listing /dev, ask DKMS
+  if sCleanPath == "/dev" then
+     syscall("signal_send", nDkmsPid, "dkms_list_devices_request", nSenderPid)
+     
+     while true do
+        local bOk, nSender, sSig, p1, p2 = syscall("signal_pull")
+        if bOk and nSender == nDkmsPid then
+           if sSig == "dkms_list_devices_result" and p1 == nSenderPid then
+              local tDeviceList = p2
+              -- We could merge this with physical /dev files if we wanted,
+              -- but for now let's assume /dev is purely virtual.
+              return true, tDeviceList
+           elseif sSig == "os_event" then
+              syscall("signal_send", nDkmsPid, "os_event", p1, p2)
+           end
+        end
+     end
+  end
+
+  -- Default: Ask the physical disk
+  local bOk, tListOrErr = syscall("raw_component_invoke", vfs_state.oRootFs.address, "list", sPath)
+  
+  if bOk then
+     return true, tListOrErr
+  else
+     return nil, tListOrErr -- error message
+  end
+end
+
 function vfs_state.handle_close(nSenderPid, nFd)
     local tHandle = vfs_state.tOpenHandles[nFd]
     if not tHandle then return nil end
@@ -337,19 +374,26 @@ function vfs_state.handle_driver_load(nSenderPid, sPath)
   syscall("signal_send", nDkmsPid, "load_driver_path_request", sPath, nSenderPid)
   
   while true do
-    local bOk, nSender, sSig, p1, p2, p3, p4 = syscall("signal_pull") -- added p3, p4
-    if bOk and nSender == nDkmsPid then
+    local bOk, nSender, sSig, p1, p2, p3, p4 = syscall("signal_pull") 
+if bOk and nSender == nDkmsPid then
        if sSig == "load_driver_result" and p1 == nSenderPid then
           local nStatus = p2
           local sDrvName = p3
           local nDrvPid = p4
           
+          -- debug check: if sDrvName is nil, something is wrong with IPC
+          if not sDrvName then sDrvName = "Unknown (IPC Error)" end
+          
           if nStatus == 0 then 
-             -- Detailed success message
-             local sMsg = string.format("[PM] Success: Loaded '%s' (PID %d)", sDrvName, nDrvPid)
+             local sMsg
+             if nDrvPid == 0 then
+                sMsg = string.format("[PM] Success: %s", sDrvName)
+             else
+                sMsg = string.format("[PM] Success: Loaded '%s' (PID %d)", sDrvName, nDrvPid)
+             end
              syscall("kernel_log", sMsg)
-             return true, sMsg -- return message to user too
-          else 
+             return true, sMsg 
+          else
              local sMsg = "[PM] Driver load failed. Status: " .. tostring(nStatus)
              syscall("kernel_log", sMsg)
              return nil, sMsg 
@@ -546,11 +590,11 @@ while true do
       elseif sName == "vfs_read" then result1, result2 = vfs_state.handle_read(nCaller, tArgs[1], tArgs[2])
       elseif sName == "vfs_close" then result1, result2 = vfs_state.handle_close(nCaller, tArgs[1])
       elseif sName == "vfs_list" then
-         result1, result2 = syscall("raw_component_invoke", vfs_state.oRootFs.address, "list", tArgs[1])
+         result1, result2 = vfs_state.handle_list(nCaller, tArgs[1])
       elseif sName == "vfs_chmod" then
          result1, result2 = vfs_state.handle_chmod(nCaller, tArgs[1], tArgs[2])
       elseif sName == "driver_load" then
-         -- NEW: handle the load request
+         -- handle the load request
          result1, result2 = vfs_state.handle_driver_load(nCaller, tArgs[1])
       
       end
