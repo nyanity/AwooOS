@@ -82,7 +82,7 @@ local function wait_for_dkms()
 end
 
 local function load_perms()
-  -- FIX: Capture both success flag AND the handle
+  -- Capture both success flag AND the handle
   local bOk, h = syscall("raw_component_invoke", vfs_state.oRootFs.address, "open", "/etc/perms.lua", "r")
   
   if bOk and h then
@@ -107,7 +107,7 @@ local function save_perms()
   end
   sData = sData .. "}"
   
-  -- FIX: Capture both success flag AND the handle
+  -- capture both success flag AND the handle
   local bOk, h = syscall("raw_component_invoke", vfs_state.oRootFs.address, "open", "/etc/perms.lua", "w")
   
   if bOk and h then
@@ -485,7 +485,7 @@ local function process_fstab()
   
   -- we skip sys.cfg for now to keep it simple, let's focus on the crash.
 
-  -- FIX: raw_component_invoke returns (bool_success, return_val).
+  -- raw_component_invoke returns (bool_success, return_val).
   -- we need to catch both, otherwise we try to load a boolean.
   local bOpenOk, hFstab = syscall("raw_component_invoke", vfs_state.oRootFs.address, "open", "/etc/fstab.lua", "r")
   
@@ -571,7 +571,11 @@ end
 
 __scandrvload()
 process_fstab()
-process_autoload()
+if env.SAFE_MODE then
+   syscall("kernel_log", "[PM] SAFE MODE ENABLED: Skipping autoload.lua")
+else
+   process_autoload()
+end
 
 wait_with_throbber("Waiting for system stabilization...", 1.0)
 
@@ -580,8 +584,10 @@ syscall("kernel_set_log_mode", false)
 
 
 -- ==============================
-syscall("kernel_log", "[PM] Spawning /bin/init.lua...")
-local nInitPid, sInitErr = syscall("process_spawn", "/bin/init.lua", 3)
+
+local sInitPath = env.INIT_PATH or "/bin/init.lua"
+syscall("kernel_log", "[PM] Spawning " .. sInitPath .. "...")
+local nInitPid, sInitErr = syscall("process_spawn", sInitPath, 3)
 
 if not nInitPid then syscall("kernel_log", "[PM] FAILED TO SPAWN INIT: " .. tostring(sInitErr))
 else syscall("kernel_log", "[PM] Init spawned as PID " .. tostring(nInitPid)) end

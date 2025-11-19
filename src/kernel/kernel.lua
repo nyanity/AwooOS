@@ -37,6 +37,7 @@ local g_bLogToScreen = true
 local g_oGpu = nil
 local g_nWidth, g_nHeight = 80, 25 -- Default values
 local g_nCurrentLine = 0
+local tBootArgs = boot_args or {} 
 
 -- Color constants for the logger
 local C_WHITE  = 0xFFFFFF
@@ -57,6 +58,16 @@ local tLogLevels = {
   none  = { text = "         ", color = C_WHITE }, -- For multi-line messages
 }
 
+local tLogLevelsPriority = {
+  debug = 0,
+  info = 1,
+  warn = 2,
+  fail = 3,
+  none = 4
+}
+
+local sCurrentLogLevel = string.lower(tBootArgs.loglevel or "info")
+local nMinPriority = tLogLevelsPriority[sCurrentLogLevel] or 1
 
 -------------------------------------------------
 -- EARLY BOOT & DEBUG FUNCTIONS
@@ -98,7 +109,10 @@ local function __logger_init()
   end
 end
 
+
 function kprint(sLevel, ...)
+  local nMsgPriority = tLogLevelsPriority[sLevel] or 1
+  if nMsgPriority < nMinPriority then return end 
   -- 1. Prepare the message
   local tMsgParts = {...}
   local sMessage = ""
@@ -1051,7 +1065,13 @@ kprint("ok", "Kernel process registered as PID", nKernelPid)
 
 -- 3. Load Ring 1 Pipeline Manager
 kprint("info", "Starting Ring 1 services...")
-local nPipelinePid, sErr = kernel.create_process("/lib/pipeline_manager.lua", 1, nKernelPid)
+local tPmEnv = {
+   SAFE_MODE = (tBootArgs.safemode == "Enabled"),
+   INIT_PATH = tBootArgs.init or "/bin/init.lua"
+}
+
+local nPipelinePid, sErr = kernel.create_process("/lib/pipeline_manager.lua", 1, nKernelPid, tPmEnv)
+
 if not nPipelinePid then
   kprint("fail", "Failed to start Ring 1 Pipeline Manager:", sErr)
   kernel.panic("Critical service failure: pipeline_manager")

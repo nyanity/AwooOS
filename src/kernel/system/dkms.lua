@@ -113,7 +113,7 @@ local function inspect_driver(sDriverPath)
   local sCode, sErr = syscall("vfs_read_file", sDriverPath)
   if not sCode then return nil, tStatus.STATUS_NO_SUCH_FILE end
   
-  -- FIX: give the inspection sandbox access to require, 
+  -- give the inspection sandbox access to require, 
   -- otherwise drivers calling require() at the top level will crash here.
   local tTempEnv = { require = require }
   
@@ -248,7 +248,7 @@ while true do
       local tList = {}
       -- g_tSymbolicLinks keys are like "/dev/tty", "/dev/gpu0"
       for sLinkPath, sDeviceName in pairs(g_tSymbolicLinks) do
-          -- We strip the "/dev/" prefix to get just the filename
+          -- we strip the "/dev/" prefix to get just the filename
           local sName = string.match(sLinkPath, "^/dev/(.+)$")
           if sName then
              table.insert(tList, sName)

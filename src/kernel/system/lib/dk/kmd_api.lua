@@ -14,7 +14,7 @@ end
 function oKMD.DkCreateDevice(pDriverObject, sDeviceName)
   oKMD.DkPrint("DkCreateDevice: " .. sDeviceName)
   
-  -- FIX: Removed pDriverObject.nDriverPid.
+  -- Removed pDriverObject.nDriverPid.
   -- DKMS will automatically determine the caller's PID.
   local pDeviceObject, nStatus = CallDkms("dkms_create_device", sDeviceName)
   
