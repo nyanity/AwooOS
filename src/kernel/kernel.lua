@@ -520,6 +520,45 @@ function kernel.create_process(sPath, nRing, nParentPid, tPassEnv)
   return nPid
 end
 
+function kernel.create_thread(fFunc, nParentPid)
+  local nPid = kernel.nNextPid
+  kernel.nNextPid = kernel.nNextPid + 1
+  
+  local tParentProcess = kernel.tProcessTable[nParentPid]
+  if not tParentProcess then return nil, "Parent died" end
+  
+  kprint("dev", "Spawning thread " .. nPid .. " for parent " .. nParentPid)
+  
+  -- CRITICAL: We share the ENV. No new sandbox.
+  -- Changes in global variables in the thread affect the parent.
+  local tSharedEnv = tParentProcess.env
+  
+  local coThread = coroutine.create(function()
+    local bOk, sErr = pcall(fFunc)
+    if not bOk then
+      kprint("fail", "Thread " .. nPid .. " crashed: " .. tostring(sErr))
+    end
+    kernel.tProcessTable[nPid].status = "dead"
+  end)
+  
+  kernel.tProcessTable[nPid] = {
+    co = coThread,
+    status = "ready",
+    ring = tParentProcess.ring, -- inherit ring
+    parent = nParentPid,
+    env = tSharedEnv, -- shared memory!
+    fds = tParentProcess.fds, -- shared file descriptors! (advanced feature)
+    wait_queue = {},
+    run_queue = {},
+    uid = tParentProcess.uid
+  }
+  
+  kernel.tPidMap[coThread] = nPid
+  kernel.tRings[nPid] = tParentProcess.ring
+  
+  return nPid
+end
+
 -------------------------------------------------
 -- SYSCALL DISPATCHER
 -------------------------------------------------
@@ -687,6 +726,7 @@ kernel.tSyscallTable["kernel_set_log_mode"] = {
   allowed_rings = {0, 1}
 }
 
+
 kernel.tSyscallTable["driver_load"] = {
   func = function(nPid, sPath)
     -- placeholder. pipeline manager should override this.
@@ -729,6 +769,16 @@ kernel.tSyscallTable["process_yield"] = {
   end,
   allowed_rings = {0, 1, 2, 2.5, 3}
 }
+
+kernel.tSyscallTable["process_thread"] = {
+  func = function(nPid, fFunc)
+    if type(fFunc) ~= "function" then return nil, "Argument must be a function" end
+    local nThreadPid, sErr = kernel.create_thread(fFunc, nPid)
+    return nThreadPid, sErr
+  end,
+  allowed_rings = {0, 1, 2, 2.5, 3}
+}
+
 kernel.tSyscallTable["process_wait"] = {
   func = function(nPid, nTargetPid)
     if not kernel.tProcessTable[nTargetPid] then
@@ -745,6 +795,26 @@ kernel.tSyscallTable["process_wait"] = {
   end,
   allowed_rings = {0, 1, 2, 2.5, 3}
 }
+
+kernel.tSyscallTable["process_kill"] = {
+  func = function(nPid, nTargetPid)
+    local tTarget = kernel.tProcessTable[nTargetPid]
+    if not tTarget then return nil, "No such process" end
+    
+    -- Security check: can only kill own children or if root (Ring 0/1)
+    -- for simplicity in dev mode: allow all for now, or check rings.
+    local nCallerRing = kernel.tRings[nPid]
+    if nCallerRing > 1 and tTarget.parent ~= nPid then
+       return nil, "Permission denied"
+    end
+    
+    tTarget.status = "dead"
+    kprint("info", "Process " .. nTargetPid .. " killed by " .. nPid)
+    return true
+  end,
+  allowed_rings = {0, 1, 2, 2.5, 3}
+}
+
 kernel.tSyscallTable["process_elevate"] = {
   func = function(nPid, nNewRing)
     -- this is for 'su'. can only go from 3 to 2.5

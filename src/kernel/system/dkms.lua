@@ -32,6 +32,7 @@ syscall("syscall_override", "dkms_get_next_index")
 
 local tSyscallHandlers = {}
 
+
 function tSyscallHandlers.dkms_create_device(nCallerPid, sDeviceName)
   local pDriverObject
   for _, pObj in pairs(g_tDriverRegistry) do
@@ -74,7 +75,17 @@ function tSyscallHandlers.dkms_complete_irp(nCallerPid, pIrp, nStatusOverride)
     if nStatusOverride then pIrp.tIoStatus.nStatus = nStatusOverride end
     
     -- init would get true (from PM), nStatus, vInformation
-    syscall("signal_send", pIrp.nSenderPid, "syscall_return", pIrp.tIoStatus.nStatus, pIrp.tIoStatus.vInformation)
+    local bNoReply = false
+    if pIrp.nFlags and type(pIrp.nFlags) == "number" then
+       -- manual bit check because lua 5.2
+       if (pIrp.nFlags / tDKStructs.IRP_FLAG_NO_REPLY) % 2 >= 1 then
+          bNoReply = true
+       end
+    end
+    
+    if not bNoReply then
+       syscall("signal_send", pIrp.nSenderPid, "syscall_return", pIrp.tIoStatus.nStatus, pIrp.tIoStatus.vInformation)
+    end
     
     g_tPendingIrps[pIrp.nSenderPid] = nil
     return tStatus.STATUS_SUCCESS

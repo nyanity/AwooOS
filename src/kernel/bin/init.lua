@@ -10,7 +10,6 @@ local hStdout = oFs.open("/dev/tty", "w")
 
 if not hStdin or not hStdout then
   syscall("kernel_log", "[INIT] FATAL: Could not open /dev/tty!")
-  -- we can kernel panic here syscall("kernel_panic", "INIT: Failed to open /dev/tty (Handles are nil)")
 end
 
 local function readFileSimple(sPath)
@@ -53,6 +52,8 @@ while true do
   oFs.write(hStdout, "Kernel 0.21 on " .. sHostname .. "\n\n")
   
   oFs.write(hStdout, sHostname .. " login: ")
+  oFs.flush(hStdout)
+  
   local sUsername = oFs.read(hStdin)
   
   if sUsername then
@@ -61,22 +62,23 @@ while true do
     local tUserEntry = tPasswdDb[sUsername]
     
     oFs.write(hStdout, "Password: ")
+    oFs.flush(hStdout)
+    
     local sPassword = oFs.read(hStdin) 
     if sPassword then sPassword = sPassword:gsub("\n", "") end
 
     if tUserEntry and tUserEntry.hash == fHash(sPassword or "") then
       oFs.write(hStdout, "\nAccess Granted.\n")
       
-      -- check if user has a specific ring requirement (like our dev god)
       local nTargetRing = tUserEntry.ring or 3
       
       if nTargetRing == 0 then
          oFs.write(hStdout, "\27[31mWARNING: SPAWNING IN RING 0 (KERNEL MODE)\27[37m\n")
       end
 
-      local nPid = oSys.spawn(tUserEntry.shell, nTargetRing, { -- pass ring here
+      local nPid = oSys.spawn(tUserEntry.shell, nTargetRing, { 
         USER = sUsername,
-        UID = tUserEntry.uid, -- pass UID to env so PM knows who is who
+        UID = tUserEntry.uid,
         HOME = tUserEntry.home,
         PWD = tUserEntry.home,
         PATH = "/usr/commands",
@@ -89,8 +91,7 @@ while true do
       end
     else
       oFs.write(hStdout, "\nLogin incorrect\n")
-      -- anti busy-loop
-      syscall("process_wait", 0) -- yield
+      syscall("process_wait", 0)
     end
   else
     syscall("kernel_log", "[INIT] Error reading stdin. Retrying...")

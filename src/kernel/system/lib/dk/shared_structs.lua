@@ -19,6 +19,8 @@ oDK.DRIVER_TYPE_KMD = "KernelModeDriver"    -- Ring 0-2, full power, god mode en
 oDK.DRIVER_TYPE_UMD = "UserModeDriver"      -- Ring 3, sandboxed, playing with plastic toys
 oDK.DRIVER_TYPE_CMD = "ComponentModeDriver" -- Ring 2, strict hardware binding. no address? no entry.
 
+oDK.IRP_FLAG_NO_REPLY = 0x10
+
 -- The DRIVER_OBJECT
 -- this is the driver's soul. it represents the loaded driver image.
 function oDK.fNewDriverObject()
@@ -56,6 +58,7 @@ function oDK.fNewIrp(nMajorFunction)
       vInformation = nil,      -- return value (e.g., bytes read)
     },
     nSenderPid = nil,          -- who originally sent this request?
+    nFlags = 0
   }
 end
 

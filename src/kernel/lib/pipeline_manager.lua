@@ -8,7 +8,7 @@ local syscall = syscall
 syscall("kernel_register_pipeline")
 syscall("kernel_log", "[PM] Ring 1 Pipeline Manager started.")
 
-local nMyPid = syscall("process_get_pid") -- own pid
+local nMyPid = syscall("process_get_pid") 
 
 local tPermCache = nil
 
@@ -270,12 +270,18 @@ function vfs_state.handle_write(nSenderPid, nFd, sData)
     return syscall("raw_component_invoke", vfs_state.oRootFs.address, "write", tHandle.handle, sData)
     
   elseif tHandle.type == "device" then
-    -- proxying into device
     local tDKStructs = require("shared_structs")
     local pIrp = tDKStructs.fNewIrp(tDKStructs.IRP_MJ_WRITE)
     pIrp.sDeviceName = tHandle.devname
     pIrp.nSenderPid = nMyPid
     pIrp.tParameters.sData = sData
+    
+    -- OPTIMIZATION: FIRE AND FORGET WITH SILENCER
+    if tHandle.devname == "\\Device\\TTY0" then
+        pIrp.nFlags = tDKStructs.IRP_FLAG_NO_REPLY -- <--- Set the silence flag
+        syscall("signal_send", nDkmsPid, "vfs_io_request", pIrp)
+        return true, #sData
+    end
     
     syscall("signal_send", nDkmsPid, "vfs_io_request", pIrp)
     
@@ -294,7 +300,6 @@ function vfs_state.handle_read(nSenderPid, nFd, nCount)
     return res1, res2
     
   elseif tHandle.type == "device" then
-    -- proxying read form device
     local tDKStructs = require("shared_structs")
     local pIrp = tDKStructs.fNewIrp(tDKStructs.IRP_MJ_READ)
     pIrp.sDeviceName = tHandle.devname
@@ -302,14 +307,12 @@ function vfs_state.handle_read(nSenderPid, nFd, nCount)
     
     syscall("signal_send", nDkmsPid, "vfs_io_request", pIrp)
     
-    -- reading a TTY is asynchronous by nature (we wait for keystrokes).
-    -- but here we're waiting for the IRP to complete. DKMS won't respond until the TTY presses Enter
+    -- we MUST wait for read, obviously.
     local nStatus, vInfo = wait_for_dkms()
     if nStatus == 0 then return true, vInfo else return nil, "Read Error" end
   end
 end
 
-    
 function vfs_state.handle_list(nSenderPid, sPath)
   -- Clean up path (remove trailing slash for check)
   local sCleanPath = sPath
@@ -326,8 +329,6 @@ function vfs_state.handle_list(nSenderPid, sPath)
         if bOk and nSender == nDkmsPid then
            if sSig == "dkms_list_devices_result" and p1 == nSenderPid then
               local tDeviceList = p2
-              -- We could merge this with physical /dev files if we wanted,
-              -- but for now let's assume /dev is purely virtual.
               return true, tDeviceList
            elseif sSig == "os_event" then
               syscall("signal_send", nDkmsPid, "os_event", p1, p2)
@@ -336,14 +337,8 @@ function vfs_state.handle_list(nSenderPid, sPath)
      end
   end
 
-  -- Default: Ask the physical disk
   local bOk, tListOrErr = syscall("raw_component_invoke", vfs_state.oRootFs.address, "list", sPath)
-  
-  if bOk then
-     return true, tListOrErr
-  else
-     return nil, tListOrErr -- error message
-  end
+  if bOk then return true, tListOrErr else return nil, tListOrErr end
 end
 
 function vfs_state.handle_close(nSenderPid, nFd)
@@ -353,12 +348,12 @@ function vfs_state.handle_close(nSenderPid, nFd)
     if tHandle.type == "file" then
         syscall("raw_component_invoke", vfs_state.oRootFs.address, "close", tHandle.handle)
     elseif tHandle.type == "device" then
-        -- send IRP_MJ_CLOSE
         local tDKStructs = require("shared_structs")
         local pIrp = tDKStructs.fNewIrp(tDKStructs.IRP_MJ_CLOSE)
         pIrp.sDeviceName = tHandle.devname
         pIrp.nSenderPid = nMyPid
         syscall("signal_send", nDkmsPid, "vfs_io_request", pIrp)
+        -- close can also be fire-and-forget for TTY if you want, but safer to wait
         wait_for_dkms()
     end
     
@@ -370,27 +365,15 @@ end
 
 function vfs_state.handle_driver_load(nSenderPid, sPath)
   syscall("kernel_log", "[PM] User (PID " .. nSenderPid .. ") requested load of: " .. sPath)
-
   syscall("signal_send", nDkmsPid, "load_driver_path_request", sPath, nSenderPid)
-  
   while true do
     local bOk, nSender, sSig, p1, p2, p3, p4 = syscall("signal_pull") 
-if bOk and nSender == nDkmsPid then
+    if bOk and nSender == nDkmsPid then
        if sSig == "load_driver_result" and p1 == nSenderPid then
-          local nStatus = p2
-          local sDrvName = p3
-          local nDrvPid = p4
-          
-          -- debug check: if sDrvName is nil, something is wrong with IPC
-          if not sDrvName then sDrvName = "Unknown (IPC Error)" end
-          
+          local nStatus, sDrvName, nDrvPid = p2, p3, p4
+          if not sDrvName then sDrvName = "Unknown" end
           if nStatus == 0 then 
-             local sMsg
-             if nDrvPid == 0 then
-                sMsg = string.format("[PM] Success: %s", sDrvName)
-             else
-                sMsg = string.format("[PM] Success: Loaded '%s' (PID %d)", sDrvName, nDrvPid)
-             end
+             local sMsg = (nDrvPid == 0) and string.format("[PM] Success: %s", sDrvName) or string.format("[PM] Success: Loaded '%s' (PID %d)", sDrvName, nDrvPid)
              syscall("kernel_log", sMsg)
              return true, sMsg 
           else
@@ -404,6 +387,7 @@ if bOk and nSender == nDkmsPid then
     end
   end
 end
+
 
 
 local function get_gpu_proxy()
@@ -495,6 +479,7 @@ local function __scandrvload()
   end
 end
 
+
 local function process_fstab()
   syscall("kernel_log", "[PM] Processing fstab...")
   
@@ -557,16 +542,44 @@ local function process_fstab()
   end
 end
 
-__scandrvload()
+local function process_autoload()
+  syscall("kernel_log", "[PM] Processing autoload...")
+  local bOk, hFile = syscall("raw_component_invoke", vfs_state.oRootFs.address, "open", "/etc/autoload.lua", "r")
+  
+  if bOk and hFile then
+     local _, sData = syscall("raw_component_invoke", vfs_state.oRootFs.address, "read", hFile, math.huge)
+     syscall("raw_component_invoke", vfs_state.oRootFs.address, "close", hFile)
+     
+     if sData then
+        local f = load(sData, "autoload", "t", {})
+        if f then
+           local tList = f()
+           if tList then
+              for _, sDrvPath in ipairs(tList) do
+                 syscall("kernel_log", "[PM] Autoloading: " .. sDrvPath)
+                 syscall("signal_send", nDkmsPid, "load_driver_path", sDrvPath)
+                 -- give it a moment to breathe
+                 syscall("process_wait", 0)
+              end
+           end
+        end
+     end
+  end
+end
 
+-- ==============================
+
+__scandrvload()
 process_fstab()
+process_autoload()
 
 wait_with_throbber("Waiting for system stabilization...", 1.0)
 
 syscall("kernel_log", "[PM] Silence on deck. Handing off to userspace.")
-
 syscall("kernel_set_log_mode", false)
 
+
+-- ==============================
 syscall("kernel_log", "[PM] Spawning /bin/init.lua...")
 local nInitPid, sInitErr = syscall("process_spawn", "/bin/init.lua", 3)
 
@@ -576,10 +589,9 @@ else syscall("kernel_log", "[PM] Init spawned as PID " .. tostring(nInitPid)) en
 
 while true do
   local bOk, nSender, sSignal, p1, p2, p3, p4, p5 = syscall("signal_pull")
-  
   if bOk then
     if sSignal == "syscall" then
-      local tData = p1 -- data table for syscall first
+      local tData = p1
       local sName = tData.name
       local tArgs = tData.args
       local nCaller = tData.sender_pid
@@ -589,21 +601,14 @@ while true do
       elseif sName == "vfs_write" then result1, result2 = vfs_state.handle_write(nCaller, tArgs[1], tArgs[2])
       elseif sName == "vfs_read" then result1, result2 = vfs_state.handle_read(nCaller, tArgs[1], tArgs[2])
       elseif sName == "vfs_close" then result1, result2 = vfs_state.handle_close(nCaller, tArgs[1])
-      elseif sName == "vfs_list" then
-         result1, result2 = vfs_state.handle_list(nCaller, tArgs[1])
-      elseif sName == "vfs_chmod" then
-         result1, result2 = vfs_state.handle_chmod(nCaller, tArgs[1], tArgs[2])
-      elseif sName == "driver_load" then
-         -- handle the load request
-         result1, result2 = vfs_state.handle_driver_load(nCaller, tArgs[1])
-      
+      elseif sName == "vfs_list" then result1, result2 = vfs_state.handle_list(nCaller, tArgs[1])
+      elseif sName == "vfs_chmod" then result1, result2 = vfs_state.handle_chmod(nCaller, tArgs[1], tArgs[2])
+      elseif sName == "driver_load" then result1, result2 = vfs_state.handle_driver_load(nCaller, tArgs[1])
       end
-      
       
       if result1 ~= "async_wait" then
          syscall("signal_send", nCaller, "syscall_return", result1, result2)
       end
-
     elseif sSignal == "os_event" then
        syscall("signal_send", nDkmsPid, "os_event", p1, p2, p3, p4, p5)
     end
