@@ -42,7 +42,6 @@ luac.out
 revoke.asc
 
 src/kernel/etc/fstab.lua
-src/kernel/etc/passwd.lua
 
 src/kernel/swapfile
 src/kernel/code.ps1
