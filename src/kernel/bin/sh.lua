@@ -1,99 +1,142 @@
 --
 -- /bin/sh.lua
--- the shell. where the user gets to break things.
+-- Advanced Shell
 --
 
-local oFs = require("lib/filesystem")
-local oSys = require("lib/syscall")
+local oFs = require("filesystem")
+local oSys = require("syscall")
 
--- standard file descriptors
-local hStdin = { fd = 0 }
-local hStdout = { fd = 1 }
-local hStderr = { fd = 2 }
+local hStdin = oFs.open("/dev/tty", "r")
+local hStdout = oFs.open("/dev/tty", "w")
+local hStderr = hStdout
 
--- shell state
-local sCurrentPath = env.HOME or "/"
+if not hStdin then syscall("kernel_panic", "SH: No TTY") end
 
--- making it look pretty. the '#' for root is a classic.
-local function fGetPrompt()
-  local bIsOk, nRing = oSys.call("process_get_ring")
-  local sUser = env.USER or "user"
-  local sChar = (nRing == 2.5) and "#" or "$"
-  return sUser .. "@auraos:" .. sCurrentPath .. " " .. sChar .. " " -- yes, it say aura. i want so
-end
+local ENV = env or {}
+ENV.PWD = ENV.PWD or "/"
+ENV.PATH = ENV.PATH or "/usr/commands"
+ENV.USER = ENV.USER or "user"
 
--- chop chop chop.
-local function fSplitCommand(sLine)
-  local tArgs = {}
-  for sArg in string.gmatch(sLine, "[^%s]+") do
-    table.insert(tArgs, sArg)
-  end
-  return tArgs
-end
-
--- Built-in commands
-local tBuiltins = {}
-
--- let's go on an adventure.
-function tBuiltins.cd(tArgs)
-  local sPath = tArgs[1] or env.HOME
-  -- TODO: Path resolution (.., ., ~)
-  local bIsOk, tList = oFs.list(sPath)
-  if bIsOk and tList then -- Check if dir exists
-    sCurrentPath = sPath
-  else
-    oFs.write(hStderr, "cd: No such directory: " .. sPath .. "\n")
-  end
-  return true
-end
-
--- see ya!
-function tBuiltins.exit()
-  return false -- Signal to exit loop
-end
-
--- main shell loop
--- read, parse, execute, repeat. the circle of life.
-while true do
-  oFs.write(hStdout, fGetPrompt())
-  local bIsOk, sLine = oFs.read(hStdin)
+local function parseLine(line)
+  local args = {}
+  local current = ""
+  local inQuote = false
   
-  if sLine then
-    local tArgs = fSplitCommand(sLine)
-    local sCmd = table.remove(tArgs, 1)
-    
-    if sCmd then
-      local fBuiltin = tBuiltins[sCmd]
-      if fBuiltin then
-        if not fBuiltin(tArgs) then
-          break -- exit
-        end
-      else
-        -- Not a builtin, try to execute from the filesystem
-        local sCmdPath = "/usr/commands/" .. sCmd .. ".lua"
-        
-        -- Check if file exists
-        local hFile, sErr = oFs.open(sCmdPath, "r")
-        if hFile then
-          oFs.close(hFile)
-          local bRingOk, nRing = oSys.call("process_get_ring")
-          local bSpawnOk, nPid, sSpawnErr = oSys.call("process_spawn", sCmdPath, nRing, {
-            PATH = sCurrentPath,
-            USER_ENV = env,
-            ARGS = tArgs,
-          })
-          if nPid then
-            oSys.call("process_wait", nPid)
-          else
-            oFs.write(hStderr, "exec failed: " .. sSpawnErr .. "\n")
-          end
-        else
-          oFs.write(hStderr, "command not found: " .. sCmd .. "\n")
-        end
-      end
+  for i = 1, #line do
+    local c = line:sub(i,i)
+    if c == '"' then
+      inQuote = not inQuote
+    elseif c == ' ' and not inQuote then
+      if #current > 0 then table.insert(args, current); current = "" end
+    elseif c == "\n" then
+      -- ignore newline at end
+    else
+      current = current .. c
     end
-  else
-    -- EOF (e.g., Ctrl+D, if TTY supported it)
-    break
+  end
+  if #current > 0 then table.insert(args, current) end
+  return args
+end
+
+local function getPrompt()
+  local r = syscall("process_get_ring")
+  local char = (r == 2.5) and "#" or "$"
+  local path = ENV.PWD
+  if ENV.HOME and path:sub(1, #ENV.HOME) == ENV.HOME then
+     path = "~" .. path:sub(#ENV.HOME + 1)
+  end
+  return string.format("\n\27[32m%s@%s\27[37m:\27[34m%s\27[37m%s ", ENV.USER, ENV.HOSTNAME or "box", path, char)
+end
+
+
+local function findExecutable(cmd)
+  if cmd:sub(1,1) == "/" or cmd:sub(1,2) == "./" then
+     local path = cmd
+     if path:sub(1,2) == "./" then path = ENV.PWD .. path:sub(2) end
+     if oFs.open(path, "r") then oFs.close({fd=0}); return path end -- hacky check exists
+     return nil
+  end
+
+  for path in string.gmatch(ENV.PATH, "[^:]+") do
+     local full = path .. "/" .. cmd .. ".lua"
+     local h = oFs.open(full, "r")
+     if h then
+        oFs.close(h)
+        return full
+     end
+  end
+  return nil
+end
+
+local builtins = {}
+
+function builtins.cd(args)
+   local newDir = args[1] or ENV.HOME
+   if newDir == ".." then
+      ENV.PWD = ENV.PWD:match("(.*/)[^/]+/?$") or "/"
+      if ENV.PWD:sub(#ENV.PWD) == "/" and #ENV.PWD > 1 then 
+         ENV.PWD = ENV.PWD:sub(1, -2) 
+      end
+      return true
+   end
+   
+   if newDir:sub(1,1) ~= "/" then newDir = ENV.PWD .. (ENV.PWD == "/" and "" or "/") .. newDir end
+   
+   local list = oFs.list(newDir)
+   if list then
+      ENV.PWD = newDir
+   else
+      oFs.write(hStderr, "cd: " .. newDir .. ": No such directory\n")
+   end
+   return true
+end
+
+function builtins.exit() return false end
+function builtins.pwd() oFs.write(hStdout, ENV.PWD .. "\n"); return true end
+function builtins.export(args)
+   if args[1] then
+      local k, v = args[1]:match("([^=]+)=(.*)")
+      if k then ENV[k] = v end
+   end
+   return true
+end
+
+-- Main Loop
+while true do
+  oFs.write(hStdout, getPrompt())
+  local line = oFs.read(hStdin)
+  
+  if not line then break end -- EOF
+  
+  local args = parseLine(line)
+  if #args > 0 then
+    local cmd = args[1]
+    table.remove(args, 1)
+    
+    if builtins[cmd] then
+       if not builtins[cmd](args) then break end
+    else
+       local execPath = findExecutable(cmd)
+       if execPath then
+          local ring = syscall("process_get_ring")
+          local pid, err = syscall("process_spawn", execPath, ring, {
+             ARGS = args,
+             PWD = ENV.PWD,
+             PATH = ENV.PATH,
+             USER = ENV.USER,
+             HOME = ENV.HOME
+          })
+          if pid then
+             syscall("process_wait", pid)
+          else
+             oFs.write(hStderr, "sh: " .. err .. "\n")
+          end
+       else
+          oFs.write(hStderr, "sh: " .. cmd .. ": command not found\n")
+       end
+    end
   end
 end
+
+oFs.close(hStdin)
+oFs.close(hStdout)

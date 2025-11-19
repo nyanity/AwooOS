@@ -1,145 +1,216 @@
 --
 -- /drivers/tty.sys.lua
--- the teletype driver. turns key presses into pixels and back again. it's basically magic.
+-- v4.3: Priority Shift
 --
 
-local syscall = syscall
+local tStatus = require("errcheck")
+local oKMD = require("kmd_api")
+local tDKStructs = require("shared_structs")
 
--- configuration from environment
-local sGpuAddress = env.gpu
-local sScreenAddress = env.screen
-local bPidOk, nMyPid = syscall("process_get_pid")
-
-if not sGpuAddress or not sScreenAddress then
-  syscall("kernel_panic", "TTY Driver started without GPU or Screen address.")
-end
-
--- get proxies for our hardware
-local bIsGpuOk, oGpuProxy = syscall("raw_component_proxy", sGpuAddress)
-if not bIsGpuOk or not oGpuProxy then syscall("kernel_panic", "TTY driver failed to get GPU proxy.") end
-
-local bIsScreenOk, oScreenProxy = syscall("raw_component_proxy", sScreenAddress)
-if not bIsScreenOk or not oScreenProxy then syscall("kernel_panic", "TTY driver failed to get Screen proxy.") end
-
--- our internal state for the screen buffer
-local tTtyState = {}
-
--- initialization
-syscall("raw_component_invoke", sGpuAddress, "bind", sScreenAddress)
-local bSyscallOk, bInvokeOk, nWidth, nHeight = syscall("raw_component_invoke", sGpuAddress, "getResolution")
-if not (bSyscallOk and bInvokeOk) then
-  syscall("kernel_panic", "TTY: Failed to get screen resolution.")
-end
-tTtyState.nWidth, tTtyState.nHeight = nWidth, nHeight
-syscall("raw_component_invoke", sGpuAddress, "fill", 1, 1, tTtyState.nWidth, tTtyState.nHeight, " ")
-syscall("raw_component_invoke", sGpuAddress, "setForeground", 0xEEEEEE)
-syscall("raw_component_invoke", sGpuAddress, "setBackground", 0x000000)
-tTtyState.nCursorX = 1
-tTtyState.nCursorY = 1
-
--- the screen is full, time to push everything up. gravity, but for text.
-function tTtyState.scroll()
-  local tReturns = {syscall("raw_component_invoke", sGpuAddress, "copy", 1, 2, tTtyState.nWidth, tTtyState.nHeight - 1, 0, -1)}
-  if not (tReturns[1] and tReturns[2]) then
-    syscall("kernel_log", "[TTY-ERROR] gpu.copy failed: " .. tostring(tReturns[3]))
-  end
-  
-  tReturns = {syscall("raw_component_invoke", sGpuAddress, "fill", 1, tTtyState.nHeight, tTtyState.nWidth, 1, " ")}
-  if not (tReturns[1] and tReturns[2]) then
-    syscall("kernel_log", "[TTY-ERROR] gpu.fill failed: " .. tostring(tReturns[3]))
-  end
-  
-  tTtyState.nCursorY = tTtyState.nHeight
-end
-
--- painting characters onto the screen, one by one.
-function tTtyState.write(sText)
-  for sChar in string.gmatch(tostring(sText), ".") do
-    if sChar == "\n" then
-      tTtyState.nCursorX = 1
-      tTtyState.nCursorY = tTtyState.nCursorY + 1
-    else
-      local tReturns = {syscall("raw_component_invoke", sGpuAddress, "set", tTtyState.nCursorX, tTtyState.nCursorY, tostring(sChar))}
-      local bIsSyscallOk = tReturns[1]
-      local bIsInvokeOk = tReturns[2]
-      
-      if not (bIsSyscallOk and bIsInvokeOk) then
-        local sErrMsg = tReturns[3]
-        syscall("kernel_log", "[TTY-ERROR] gpu.set failed: " .. tostring(sErrMsg))
-      end
-      
-      tTtyState.nCursorX = tTtyState.nCursorX + 1
-      if tTtyState.nCursorX > tTtyState.nWidth then
-        tTtyState.nCursorX = 1
-        tTtyState.nCursorY = tTtyState.nCursorY + 1
-      end
-    end
-    if tTtyState.nCursorY > tTtyState.nHeight then
-      tTtyState.scroll()
-    end
-  end
-end
-
--- managing the read loop. are we waiting for input or just chilling?
-local tReadState = {
-  sMode = "idle", -- "idle"/"reading"
-  nReadRequesterPid = nil,
-  sLineBuffer = ""
+g_tDriverInfo = {
+  sDriverName = "AwooTTY",
+  sDriverType = tDKStructs.DRIVER_TYPE_KMD,
+  nLoadPriority = 100,
+  sVersion = "4.3.0",
 }
 
-syscall("kernel_log", "[TTY PID " .. tostring(nMyPid) .. "] Initialized. Sending 'driver_ready'.")
-syscall("signal_send", 2, "driver_ready", tostring(nMyPid)) 
+local g_pDeviceObject = nil
+local g_oGpuProxy = nil
 
--- main driver loop. listening for whispers on the wind (or, you know, s i g n a l s).
-while true do
-  local bSyscallOk, bPullOk, nSenderPid, sSignalName, p1, p2, p3, p4 = syscall("signal_pull")
+local tAnsiColors = {
+  [30] = 0x000000, [31] = 0xFF0000, [32] = 0x00FF00, [33] = 0xFFFF00,
+  [34] = 0x0000FF, [35] = 0xFF00FF, [36] = 0x00FFFF, [37] = 0xFFFFFF,
+  [90] = 0x555555,
+}
 
-  if bPullOk then
-    syscall("kernel_log", string.format("[TTY-DEBUG] Pulled signal: '%s' from PID %s", tostring(sSignalName), tostring(nSenderPid)))
+local function scroll(pExt)
+  if not g_oGpuProxy then return end
+  g_oGpuProxy.copy(1, 2, pExt.nWidth, pExt.nHeight - 1, 0, -1)
+  g_oGpuProxy.fill(1, pExt.nHeight, pExt.nWidth, 1, " ")
+  pExt.nCursorY = pExt.nHeight
+end
+
+local function rawWrite(pExt, sText)
+  if #sText == 0 then return end
+  local nLen = #sText
+  local nRemainingSpace = pExt.nWidth - pExt.nCursorX + 1
+  
+  if nLen <= nRemainingSpace then
+      g_oGpuProxy.set(pExt.nCursorX, pExt.nCursorY, sText)
+      pExt.nCursorX = pExt.nCursorX + nLen
+      if pExt.nCursorX > pExt.nWidth then
+         pExt.nCursorX = 1
+         if pExt.nCursorY < pExt.nHeight then pExt.nCursorY = pExt.nCursorY + 1 else scroll(pExt) end
+      end
+  else
+      local sPart1 = string.sub(sText, 1, nRemainingSpace)
+      local sPart2 = string.sub(sText, nRemainingSpace + 1)
+      g_oGpuProxy.set(pExt.nCursorX, pExt.nCursorY, sPart1)
+      pExt.nCursorX = 1
+      if pExt.nCursorY < pExt.nHeight then pExt.nCursorY = pExt.nCursorY + 1 else scroll(pExt) end
+      rawWrite(pExt, sPart2)
   end
+end
 
-  if bSyscallOk and bPullOk then
-    
-    if sSignalName == "tty_write" then
-      local sData = p2
-      tTtyState.write(tostring(sData))
-    
-    elseif sSignalName == "tty_read" then
-      if tReadState.sMode == "idle" then
-        tReadState.sMode = "reading"
-        tReadState.nReadRequesterPid = p1
-        tReadState.sLineBuffer = ""
-      else
-        -- someone else is already trying to read. tell the new guy to wait.
-        syscall("signal_send", p1, "syscall_return", false, "TTY busy")
+local function safeDraw(fFunc, ...)
+    local bOk, sErr = pcall(fFunc, ...)
+    -- ignore errors silently to prevent log spam loops
+end
+
+local function writeToScreen(pDeviceObject, sData)
+  if not g_oGpuProxy then return end
+  local pExt = pDeviceObject.pDeviceExtension
+  local sStr = tostring(sData)
+  local nLen = #sStr
+  local nIdx = 1
+  
+  while nIdx <= nLen do
+      local nNextSpecial = string.find(sStr, "[%c\27]", nIdx)
+      if not nNextSpecial then
+          safeDraw(rawWrite, pExt, string.sub(sStr, nIdx))
+          break
       end
+      if nNextSpecial > nIdx then
+          safeDraw(rawWrite, pExt, string.sub(sStr, nIdx, nNextSpecial - 1))
+      end
+      
+      local nByte = string.byte(sStr, nNextSpecial)
+      pcall(function()
+          if nByte == 10 then -- \n
+              pExt.nCursorX = 1
+              if pExt.nCursorY < pExt.nHeight then pExt.nCursorY = pExt.nCursorY + 1 else scroll(pExt) end
+          elseif nByte == 13 then -- \r
+              pExt.nCursorX = 1
+          elseif nByte == 8 then -- \b
+              if pExt.nCursorX > 1 then
+                  pExt.nCursorX = pExt.nCursorX - 1
+                  g_oGpuProxy.set(pExt.nCursorX, pExt.nCursorY, " ")
+              end
+          elseif nByte == 12 then -- \f
+              g_oGpuProxy.fill(1, 1, pExt.nWidth, pExt.nHeight, " ")
+              pExt.nCursorX, pExt.nCursorY = 1, 1
+          elseif nByte == 27 then -- ANSI
+              if string.sub(sStr, nNextSpecial + 1, nNextSpecial + 1) == "[" then
+                  local nEndAnsi = string.find(sStr, "m", nNextSpecial)
+                  if nEndAnsi then
+                      local sCode = string.sub(sStr, nNextSpecial + 2, nEndAnsi - 1)
+                      for sSubCode in string.gmatch(sCode, "[^;]+") do
+                          local nColor = tonumber(sSubCode)
+                          if nColor and tAnsiColors[nColor] then
+                              g_oGpuProxy.setForeground(tAnsiColors[nColor])
+                          elseif sSubCode == "0" or sSubCode == "" then
+                              g_oGpuProxy.setForeground(0xFFFFFF)
+                              g_oGpuProxy.setBackground(0x000000)
+                          end
+                      end
+                      nIdx = nEndAnsi + 1 - nNextSpecial
+                      nNextSpecial = nEndAnsi
+                  end
+              end
+          end
+      end)
+      nIdx = nNextSpecial + 1
+  end
+end
 
-    elseif sSignalName == "os_event" then
-      local sEventName = p1
-      if sEventName == "key_down" and tReadState.sMode == "reading" then
-        local sChar = p3
-        local nCode = p4
-        
-        if nCode == 28 then -- Enter
-          tTtyState.write("\n")
-          syscall("signal_send", tReadState.nReadRequesterPid, "syscall_return", true, tReadState.sLineBuffer)
-          tReadState.sMode = "idle"
-          tReadState.nReadRequesterPid = nil
-          
-        elseif nCode == 14 then -- Backspace
-          if #tReadState.sLineBuffer > 0 then
-            tReadState.sLineBuffer = string.sub(tReadState.sLineBuffer, 1, -2)
-            tTtyState.nCursorX = tTtyState.nCursorX - 1
-            if tTtyState.nCursorX < 1 then tTtyState.nCursorX = 1 end
-            syscall("raw_component_invoke", sGpuAddress, "set", tTtyState.nCursorX, tTtyState.nCursorY, " ")
-          end
-        else
-          if sChar and #sChar > 0 then
-            tReadState.sLineBuffer = tReadState.sLineBuffer .. sChar
-            tTtyState.write(sChar)
-          end
+local function fCreate(d, i) oKMD.DkCompleteRequest(i, 0, 0) end
+local function fClose(d, i) oKMD.DkCompleteRequest(i, 0) end
+local function fWrite(d, i)
+  writeToScreen(d, i.tParameters.sData)
+  oKMD.DkCompleteRequest(i, 0, #i.tParameters.sData)
+end
+local function fRead(d, i)
+  local p = d.pDeviceExtension
+  if p.pPendingReadIrp then 
+     oKMD.DkCompleteRequest(i, tStatus.STATUS_DEVICE_BUSY)
+  else 
+     p.pPendingReadIrp = i
+     p.sLineBuffer = "" 
+  end
+end
+
+function DriverEntry(pObj)
+  oKMD.DkPrint("AwooTTY v4.3 Loaded.")
+  pObj.tDispatch[tDKStructs.IRP_MJ_CREATE] = fCreate
+  pObj.tDispatch[tDKStructs.IRP_MJ_CLOSE] = fClose
+  pObj.tDispatch[tDKStructs.IRP_MJ_WRITE] = fWrite
+  pObj.tDispatch[tDKStructs.IRP_MJ_READ] = fRead
+  
+  local st, dev = oKMD.DkCreateDevice(pObj, "\\Device\\TTY0")
+  if st ~= 0 then return st end
+  g_pDeviceObject = dev
+  oKMD.DkCreateSymbolicLink("/dev/tty", "\\Device\\TTY0")
+  
+  local gpu, scr
+  local b, l
+  b, l = syscall("raw_component_list", "gpu")
+  if b and l then for k in pairs(l) do gpu=k break end end
+  b, l = syscall("raw_component_list", "screen")
+  if b and l then for k in pairs(l) do scr=k break end end
+  
+  dev.pDeviceExtension.nWidth = 80
+  dev.pDeviceExtension.nHeight = 25
+  dev.pDeviceExtension.nCursorX = 1
+  dev.pDeviceExtension.nCursorY = 25
+  
+  if gpu then
+     local _, p = oKMD.DkGetHardwareProxy(gpu)
+     g_oGpuProxy = p
+     if scr and p then
+         p.bind(scr)
+         local w, h = p.getResolution()
+         p.setBackground(0x000000)
+         p.setForeground(0xFFFFFF)
+         if w and h then
+             dev.pDeviceExtension.nWidth = w
+             dev.pDeviceExtension.nHeight = h
+             dev.pDeviceExtension.nCursorY = h
+         end
+     end
+  end
+  oKMD.DkRegisterInterrupt("key_down")
+  return 0
+end
+
+function DriverUnload() return 0 end
+
+while true do
+  local b, pid, sig, p1, p2, p3, p4 = syscall("signal_pull")
+  if b then
+    if sig == "driver_init" then
+        local s = DriverEntry(p1)
+        syscall("signal_send", pid, "driver_init_complete", s, p1)
+    elseif sig == "irp_dispatch" then
+        if p2 then p2(g_pDeviceObject, p1) end
+    elseif sig == "hardware_interrupt" and p1 == "key_down" then
+        local ext = g_pDeviceObject and g_pDeviceObject.pDeviceExtension
+        if ext and ext.pPendingReadIrp then
+            local ch, code = p3, p4
+            if code == 28 then -- Enter
+                -- save the data we need
+                local sResult = ext.sLineBuffer
+                local pIrp = ext.pPendingReadIrp
+                
+                -- clear the state so we don't process double enters
+                ext.pPendingReadIrp = nil
+                
+                -- tell the OS we are done. This unblocks init.lua immediately.
+                oKMD.DkCompleteRequest(pIrp, 0, sResult)
+                
+                -- NOW try to draw the newline. If this lags/fails, the OS doesn't care.
+                writeToScreen(g_pDeviceObject, "\n")
+                
+            elseif code == 14 then -- Backspace
+                if #ext.sLineBuffer > 0 then
+                    ext.sLineBuffer = ext.sLineBuffer:sub(1, -2)
+                    writeToScreen(g_pDeviceObject, "\b")
+                end
+            elseif code ~= 0 and ch > 0 and ch < 256 then
+                local s = string.char(ch)
+                ext.sLineBuffer = ext.sLineBuffer .. s
+                writeToScreen(g_pDeviceObject, s)
+            end
         end
-      end
     end
   end
 end

@@ -13,8 +13,16 @@ sys.read = function()
   return data
 end
 
-sys.spawn = function(path, env)
-  return syscall("process_spawn", path, 3, env)
+sys.spawn = function(path, ring_or_env, env)
+  local r = 3
+  local e = {}
+  if type(ring_or_env) == "number" then
+     r = ring_or_env
+     e = env or {}
+  else
+     e = ring_or_env or {}
+  end
+  return syscall("process_spawn", path, r, e)
 end
 
 sys.wait = function(pid)

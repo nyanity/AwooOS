@@ -1,93 +1,100 @@
 --
 -- /bin/init.lua
--- the first userspace process. pid 1's big day.
--- its job is to get a user logged in and start their shell.
+-- Paranoid Mode
 --
-
 local oFs = require("filesystem")
+local oSys = require("syscall")
 
--- open stdio, the classic way
 local hStdin = oFs.open("/dev/tty", "r")
 local hStdout = oFs.open("/dev/tty", "w")
 
--- a simple wrapper to make sure we're writing to the right place.
-local function fWrite(sText)
-  oFs.write(hStdout, sText)
+if not hStdin or not hStdout then
+  syscall("kernel_log", "[INIT] FATAL: Could not open /dev/tty!")
 end
 
-fWrite("[INIT] hStdout created. FD is: " .. tostring(hStdout and hStdout.fd) .. "\n")
-
--- reads a line from stdin.
-local function fRead()
-  -- TODO: implement secret read, rn it's just echoing. security!
-  return oFs.read(hStdin)
+local function readFileSimple(sPath)
+  local h = oFs.open(sPath, "r")
+  if not h then return nil end
+  local d = oFs.read(h, math.huge)
+  oFs.close(h)
+  if type(d) ~= "string" then return nil end
+  return d:gsub("\n", "")
 end
 
--- super secure hashing algorithm, do not steal
--- top secret government-grade encryption. totally unbreakable.
+local sHostname = readFileSimple("/etc/hostname") or "localhost"
+
 local function fHash(sPassword)
   return string.reverse(sPassword) .. "AURA_SALT"
 end
 
--- load the /etc/passwd.lua file
--- let's see who's on the guest list.
-local function fLoadPasswd()
-  local hPasswdFile, sErr = oFs.open("/etc/passwd.lua", "r")
-  if not hPasswdFile then
-    fWrite("FATAL: Cannot open /etc/passwd.lua: " .. sErr .. "\n")
-    return nil
-  end
-  local sFileContent = oFs.read(hPasswdFile)
-  oFs.close(hPasswdFile)
-  
-  if not sFileContent or sFileContent == "" then
-    return {}
-  end
-  
-  local fLoadedFunc, sLoadErr = load(sFileContent, "passwd", "t", {})
-  if not fLoadedFunc then
-      fWrite("FATAL: Syntax error in /etc/passwd.lua: " .. tostring(sLoadErr) .. "\n")
-      return nil
-  end
+local tPasswdDb = {}
 
-  return fLoadedFunc()
+local function fLoadPasswd()
+  local sContent = readFileSimple("/etc/passwd.lua")
+  if sContent and #sContent > 0 then
+      local f, err = load(sContent, "passwd", "t", {})
+      if f then 
+         local tResult = f()
+         if type(tResult) == "table" then tPasswdDb = tResult end
+      end
+  end
+  if not tPasswdDb or not next(tPasswdDb) then
+     tPasswdDb = { root = { hash = fHash("root"), home = "/", shell = "/bin/sh.lua", uid=0 } }
+  end
 end
 
--- main login loop
--- the eternal login prompt. the gatekeeper.
+fLoadPasswd()
+
+oFs.write(hStdout, "\f")
+
 while true do
-  local tPasswordDb = fLoadPasswd()
-  if not tPasswordDb then
-    syscall("process_yield") -- wait and retry, maybe it'll exist later
-  else
-    fWrite("Welcome to AwooOS\n")
-    fWrite("Login: ")
-    local sUsername = fRead()
+  oFs.write(hStdout, "\nWelcome to AwooOS v0.26\n")
+  oFs.write(hStdout, "Kernel 0.21 on " .. sHostname .. "\n\n")
+  
+  oFs.write(hStdout, sHostname .. " login: ")
+  oFs.flush(hStdout)
+  
+  local sUsername = oFs.read(hStdin)
+  
+  if sUsername then
+    sUsername = sUsername:gsub("\n", ""):gsub(" ", "")
     
-    local tUserEntry = tPasswordDb[sUsername]
+    local tUserEntry = tPasswdDb[sUsername]
     
-    fWrite("Password: ")
-    local sPassword = fRead() -- TODO: secret read again. seriously.
+    oFs.write(hStdout, "Password: ")
+    oFs.flush(hStdout)
     
-    if tUserEntry and tUserEntry.hash == fHash(sPassword) then
-      fWrite("\nLogin successful. Starting shell...\n")
+    local sPassword = oFs.read(hStdin) 
+    if sPassword then sPassword = sPassword:gsub("\n", "") end
+
+    if tUserEntry and tUserEntry.hash == fHash(sPassword or "") then
+      oFs.write(hStdout, "\nAccess Granted.\n")
       
-      -- spawn the shell for the user
-      local nNewPid, sErr = syscall("process_spawn", tUserEntry.shell, 3, {
+      local nTargetRing = tUserEntry.ring or 3
+      
+      if nTargetRing == 0 then
+         oFs.write(hStdout, "\27[31mWARNING: SPAWNING IN RING 0 (KERNEL MODE)\27[37m\n")
+      end
+
+      local nPid = oSys.spawn(tUserEntry.shell, nTargetRing, { 
         USER = sUsername,
-        HOME = tUserEntry.home,
         UID = tUserEntry.uid,
+        HOME = tUserEntry.home,
+        PWD = tUserEntry.home,
+        PATH = "/usr/commands",
+        HOSTNAME = sHostname
       })
       
-      if nNewPid then
-        -- wait for the shell process to finish
-        syscall("process_wait", nNewPid)
-        fWrite("\nShell exited. Logging out.\n\n") -- shell's done, log 'em out.
-      else
-        fWrite("\nFailed to start shell: " .. sErr .. "\n")
+      if nPid then
+        oSys.wait(nPid)
+        oFs.write(hStdout, "\f") 
       end
     else
-      fWrite("\nLogin incorrect.\n")
+      oFs.write(hStdout, "\nLogin incorrect\n")
+      syscall("process_wait", 0)
     end
+  else
+    syscall("kernel_log", "[INIT] Error reading stdin. Retrying...")
+    syscall("process_wait", 0)
   end
 end

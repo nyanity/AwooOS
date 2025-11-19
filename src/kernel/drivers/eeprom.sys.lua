@@ -1,8 +1,23 @@
-local k_syscall = syscall
-local my_pid = k_syscall("process_get_pid")
+-- /drivers/eeprom.sys.lua - Stub Driver
+local tStatus = require("errcheck")
+local oKMD = require("kmd_api")
+local tDKStructs = require("shared_structs")
 
-k_syscall("signal_send", 2, "driver_ready", my_pid)
+g_tDriverInfo = { sDriverName = "AwooEEPROMStub", sDriverType = tDKStructs.DRIVER_TYPE_KMD, nLoadPriority = 500 }
+
+function DriverEntry(pDriverObject)
+  oKMD.DkPrint("EEPROM Stub Driver loaded. Doing nothing.")
+  return tStatus.STATUS_SUCCESS
+end
+
+function DriverUnload(pDriverObject) return tStatus.STATUS_SUCCESS end
 
 while true do
-  k_syscall("signal_pull")
+  local bOk, nSenderPid, sSignalName, p1 = syscall("signal_pull")
+  if bOk and sSignalName == "driver_init" then
+    local pDriverObject = p1
+    pDriverObject.fDriverUnload = DriverUnload
+    local nStatus = DriverEntry(pDriverObject)
+    syscall("signal_send", nSenderPid, "driver_init_complete", nStatus, pDriverObject)
+  end
 end
