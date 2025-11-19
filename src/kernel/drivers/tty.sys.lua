@@ -89,22 +89,34 @@ local function writeToScreen(pDeviceObject, sData)
           elseif nByte == 12 then -- \f
               g_oGpuProxy.fill(1, 1, pExt.nWidth, pExt.nHeight, " ")
               pExt.nCursorX, pExt.nCursorY = 1, 1
-          elseif nByte == 27 then -- ANSI
+          elseif nByte == 27 then -- ANSI escape code
               if string.sub(sStr, nNextSpecial + 1, nNextSpecial + 1) == "[" then
-                  local nEndAnsi = string.find(sStr, "m", nNextSpecial)
-                  if nEndAnsi then
-                      local sCode = string.sub(sStr, nNextSpecial + 2, nEndAnsi - 1)
-                      for sSubCode in string.gmatch(sCode, "[^;]+") do
-                          local nColor = tonumber(sSubCode)
-                          if nColor and tAnsiColors[nColor] then
-                              g_oGpuProxy.setForeground(tAnsiColors[nColor])
-                          elseif sSubCode == "0" or sSubCode == "" then
-                              g_oGpuProxy.setForeground(0xFFFFFF)
-                              g_oGpuProxy.setBackground(0x000000)
+                  local sAnsiSeq = string.sub(sStr, nNextSpecial + 2, nNextSpecial + 3)
+
+                  if sAnsiSeq:sub(1,1) == "H" then -- \27[H (Set cursor pos to 1,1)
+                      pExt.nCursorX, pExt.nCursorY = 1, 1
+                      nNextSpecial = nNextSpecial + 2
+                  
+                  elseif sAnsiSeq == "2J" then -- \27[2J (Clear Screen)
+                      g_oGpuProxy.fill(1, 1, pExt.nWidth, pExt.nHeight, " ")
+                      pExt.nCursorX, pExt.nCursorY = 1, 1
+                      nNextSpecial = nNextSpecial + 3 
+                  
+                  else -- Color codes
+                      local nEndAnsi = string.find(sStr, "m", nNextSpecial)
+                      if nEndAnsi then
+                          local sCode = string.sub(sStr, nNextSpecial + 2, nEndAnsi - 1)
+                          for sSubCode in string.gmatch(sCode, "[^;]+") do
+                              local nColor = tonumber(sSubCode)
+                              if nColor and tAnsiColors[nColor] then
+                                  g_oGpuProxy.setForeground(tAnsiColors[nColor])
+                              elseif sSubCode == "0" or sSubCode == "" then
+                                  g_oGpuProxy.setForeground(0xFFFFFF)
+                                  g_oGpuProxy.setBackground(0x000000)
+                              end
                           end
+                          nNextSpecial = nEndAnsi
                       end
-                      nIdx = nEndAnsi + 1 - nNextSpecial
-                      nNextSpecial = nEndAnsi
                   end
               end
           end

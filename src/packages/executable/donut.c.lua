@@ -2,7 +2,7 @@
 -- donut.c but lua
 -- slow as hell but it works
 --
-x = require("filesystem") z = x.open("/dev/tty","w")) io = {} io.write = function(...) x.write(z, ...) end
+fs = require("filesystem") tt = fs.open("/dev/tty","w") io = {} io.write = function(...) fs.write(tt, ...) end
             A=0 B=0 z={}b=
          {}E={32,46,44,45,126,
        58,59,61,33,42,35,36,64}S
