@@ -161,6 +161,30 @@ local nStatus = oKMD.DkRegisterInterrupt(sEventName)
 **Remarks**
 This function provides the foundation for event-driven I/O. The driver's PID is registered with the DKMS as a listener for the specified event. When the kernel forwards a raw `os_event` to the DKMS, the DKMS will dispatch it as a `hardware_interrupt` signal to all drivers that have registered for that event. This allows a driver to process hardware events asynchronously without polling. This is the preferred mechanism for handling input devices, component hot-plugging, and other asynchronous hardware notifications.
 
+### `oKMD.DkCreateComponentDevice`
+
+Helper function for **CMD** drivers to auto-generate device names and symlinks based on their bound component address.
+
+**Synopsis**
+```lua
+local nStatus, pDeviceObject = oKMD.DkCreateComponentDevice(pDriverObject, sDeviceTypeName)
+```
+
+**Parameters**
+- `pDriverObject`: The driver object passed to `DriverEntry`.
+- `sDeviceTypeName` (`string`): A short name for the device type (e.g., `"iter"`).
+
+**Return Values**
+- `nStatus`: `STATUS_SUCCESS` on success.
+- `pDeviceObject`: The created device object.
+
+**Remarks**
+This function automates the naming convention for drivers that handle multiple hardware instances.
+1. It verifies the driver has a component address in its environment (injected by DKMS during auto-discovery).
+2. It generates an internal name: `\Device\<Type>_<ShortAddr>` (e.g., `\Device\iter_a1b2c3`).
+3. It generates a user symlink: `/dev/<Type>_<ShortAddr>_<Index>` (e.g., `/dev/iter_a1b2c3_0`).
+4. It stores the symlink in `pDeviceExtension.sAutoSymlink` for automatic cleanup.
+
 ---
 
 

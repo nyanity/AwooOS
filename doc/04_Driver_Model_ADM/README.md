@@ -14,6 +14,12 @@ The ADM defines two primary modes of driver operation:
 
 *   **User-Mode Driver Framework (UMDF):** Drivers running in Ring 3 have no direct hardware access. They operate under the supervision of a Ring 2.5 "Driver Host" process. All requests for privileged operations are marshaled as RPC-style signals to the host, which validates them and forwards them to the kernel. This model is intended for less-trusted or simpler drivers, such as those for USB devices or protocol handlers, where the security benefits of extreme isolation outweigh the performance cost of the additional IPC layer.
 
+*   **CMD (Component Mode Driver):** A specialized KMD designed for specific OpenComputers components (e.g., `iter.sys.lua`).
+    *   DKMS automatically discovers hardware matching the driver's `sSupportedComponent`.
+    *   DKMS spawns a separate instance of the driver for *each* physical component found.
+    *   The component address is injected into the driver's environment.
+3.  **UMD (User Mode Driver):** Runs in Ring 3 under a host process.
+
 ## 2. Core Architectural Concepts
 
 The ADM is built upon a small set of fundamental objects that represent the various components of the I/O subsystem. A thorough understanding of these objects is essential for driver development.

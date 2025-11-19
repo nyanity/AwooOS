@@ -71,3 +71,4 @@ These constants are used in the `g_tDriverInfo` table to declare the driver's ex
 | :--- | :--- | :--- |
 | `DRIVER_TYPE_KMD` | `"KernelModeDriver"` | The driver is a Kernel-Mode Driver, intended to run in Ring 2 with privileged hardware access. |
 | `DRIVER_TYPE_UMD` | `"UserModeDriver"` | The driver is a User-Mode Driver, intended to run in Ring 3 under the supervision of a host process. |
+| `DRIVER_TYPE_CMD` | `"ComponentModeDriver"` | Ring 2. **Auto-Discovery Driver.** Requires `sSupportedComponent` in info. DKMS automatically loads one instance of this driver for every matching component address found on the bus. |
