@@ -262,7 +262,7 @@ local function splash(bSkipMemTest)
   else
      -- Dynamic counting
      local nCurrent = 0
-     local nStep = math.ceil(nTotalMem / 15) -- ~40 frames total
+     local nStep = math.ceil(nTotalMem / 5) -- ~40 frames total
      
      while nCurrent < nTotalMem do
         nCurrent = nCurrent + nStep
@@ -272,7 +272,7 @@ local function splash(bSkipMemTest)
         gpu.set(1, 5, "Memory Test: " .. nDisplayKB .. "K")
         
         -- Check for DEL key DURING memtest to enter setup faster
-        local sig, _, _, code = computer.pullSignal(0.03) -- Fast tick
+        local sig, _, _, code = computer.pullSignal(0.01) -- Fast tick
         if sig == "key_down" and code == 211 then -- DEL
            return "SETUP"
         end
@@ -295,14 +295,14 @@ end
 -- MAIN BOOT LOOP
 local action = splash(false) -- Run memtest on first boot
 if action == "SETUP" then
-   computer.pullSignal(0.1)
+   -- computer.pullSignal(0.1)
    computer.beep(1000, 0.01)
    run_setup()
    splash(true) -- Skip memtest after setup
 end
 
 local delay = tonumber(tBootArgs.timeout) or 3
-if tBootArgs.quick == "Enabled" then delay = 0.5 end
+if tBootArgs.quick == "Enabled" then delay = 0.1 end
 local deadline = computer.uptime() + delay
 local bar_w = math.floor(w / 2)
 
@@ -316,7 +316,7 @@ while computer.uptime() < deadline do
   if sig == "key_down" and code == 211 then -- DEL
     run_setup()
     splash(true) -- Skip memtest on redraw
-    deadline = computer.uptime() + 1
+    deadline = computer.uptime() + 0.1
   end
 end
 

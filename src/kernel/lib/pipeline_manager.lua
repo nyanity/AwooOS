@@ -178,7 +178,6 @@ end
 
 function vfs_state.handle_open(nSenderPid, sPath, sMode)
   if string.sub(sPath, 1, 5) == "/dev/" then
-    -- proxying
     local tDKStructs = require("shared_structs")
     local pIrp = tDKStructs.fNewIrp(tDKStructs.IRP_MJ_CREATE)
     
@@ -186,22 +185,23 @@ function vfs_state.handle_open(nSenderPid, sPath, sMode)
     elseif sPath == "/dev/gpu0" then pIrp.sDeviceName = "\\Device\\Gpu0"
     else pIrp.sDeviceName = "\\Device" .. sPath:sub(5):gsub("/", "\\") end
 
-    -- sender - WE (PM), so that the answer comes to us
     pIrp.nSenderPid = nMyPid
     pIrp.tParameters.sMode = sMode
     
     syscall("signal_send", nDkmsPid, "vfs_io_request", pIrp)
     
-    -- status
     local nStatus, vInfo = wait_for_dkms()
     
-    if nStatus == 0 then -- STATUS_SUCCESS
+    if nStatus == 0 then 
        local nFd = vfs_state.nNextFd
        vfs_state.nNextFd = vfs_state.nNextFd + 1
-       -- remember that this FD is associated with a device
+      
+       local nDriverPid = (type(vInfo) == "number") and vInfo or nDkmsPid
+       
        vfs_state.tOpenHandles[nFd] = { 
          type = "device", 
-         devname = pIrp.sDeviceName 
+         devname = pIrp.sDeviceName,
+         driverPid = nDriverPid
        }
        return true, nFd
     else
@@ -209,7 +209,7 @@ function vfs_state.handle_open(nSenderPid, sPath, sMode)
     end
   end
 
-    if not check_access(nSenderPid, sPath, sMode or "r") then
+  if not check_access(nSenderPid, sPath, sMode or "r") then
      return nil, "Permission denied"
   end
   
@@ -276,15 +276,17 @@ function vfs_state.handle_write(nSenderPid, nFd, sData)
     pIrp.nSenderPid = nMyPid
     pIrp.tParameters.sData = sData
     
-    -- OPTIMIZATION: FIRE AND FORGET WITH SILENCER
     if tHandle.devname == "\\Device\\TTY0" then
-        pIrp.nFlags = tDKStructs.IRP_FLAG_NO_REPLY -- <--- Set the silence flag
-        syscall("signal_send", nDkmsPid, "vfs_io_request", pIrp)
+        pIrp.nFlags = tDKStructs.IRP_FLAG_NO_REPLY 
+        
+        local nTarget = tHandle.driverPid or nDkmsPid
+        local sSignal = (nTarget == nDkmsPid) and "vfs_io_request" or "irp_dispatch"
+        
+        syscall("signal_send", nTarget, sSignal, pIrp)
         return true, #sData
     end
     
     syscall("signal_send", nDkmsPid, "vfs_io_request", pIrp)
-    
     local nStatus, vInfo = wait_for_dkms()
     if nStatus == 0 then return true, vInfo else return nil, "Write Error" end
   end

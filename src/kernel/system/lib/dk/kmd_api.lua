@@ -49,7 +49,7 @@ function oKMD.DkCompleteRequest(pIrp, nStatus, vInformation)
 end
 
 function oKMD.DkGetHardwareProxy(sAddress)
-    -- вirect syscall, returns data immediately
+    -- direct syscall, returns data immediately
     local oProxyOrErr, sErr = fSyscall("raw_component_proxy", sAddress)
     if oProxyOrErr then
         return tStatus.STATUS_SUCCESS, oProxyOrErr

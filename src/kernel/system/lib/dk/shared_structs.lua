@@ -21,6 +21,8 @@ oDK.DRIVER_TYPE_CMD = "ComponentModeDriver" -- Ring 2, strict hardware binding. 
 
 oDK.IRP_FLAG_NO_REPLY = 0x10
 
+
+
 -- The DRIVER_OBJECT
 -- this is the driver's soul. it represents the loaded driver image.
 function oDK.fNewDriverObject()

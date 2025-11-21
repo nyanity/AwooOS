@@ -1090,10 +1090,22 @@ kprint("none", "")
 table.insert(kernel.tProcessTable[nPipelinePid].run_queue, "start")
 
 
+-------------------------------------------------
+-- MAIN KERNEL EVENT LOOP
+-------------------------------------------------
+kprint("info", "Handing off control to scheduler...")
+kprint("ok", "Entering main event loop. Kernel is now running.")
+kprint("none", "")
+
+table.insert(kernel.tProcessTable[nPipelinePid].run_queue, "start")
+
 while true do
+  local nWorkDone = 0 -- tracking if we actually did anything useful
+  
   -- 1. Run all "ready" processes
   for nPid, tProcess in pairs(kernel.tProcessTable) do
     if tProcess.status == "ready" then
+      nWorkDone = nWorkDone + 1 -- we are busy, no sleeping allowed
       g_nCurrentPid = nPid
       tProcess.status = "running"
       
@@ -1102,7 +1114,6 @@ while true do
       
       local bIsOk, sErrOrSignalName
       if tResumeParams then
-        --kprint(string.format("SCHEDULER: Resuming PID %d with signal args.", nPid))
         bIsOk, sErrOrSignalName = coroutine.resume(tProcess.co, true, table.unpack(tResumeParams))
       else
         bIsOk, sErrOrSignalName = coroutine.resume(tProcess.co)
@@ -1121,13 +1132,15 @@ while true do
           tProcess.status = "dead"
         end
       end
+      
+      -- wake up the stalkers waiting for this pid
       if tProcess.status == "dead" then
-        -- wake up any processes that were waiting for this one to die
         for _, nWaiterPid in ipairs(tProcess.wait_queue or {}) do
           local tWaiter = kernel.tProcessTable[nWaiterPid]
           if tWaiter and tWaiter.status == "sleeping" and tWaiter.wait_reason == "wait_pid" then
             tWaiter.status = "ready"
             tWaiter.resume_args = {true}
+            nWorkDone = nWorkDone + 1
           end
         end
       end
@@ -1135,15 +1148,16 @@ while true do
   end
   
   -- 2. Pull external events
-  -- we yield the *kernel* process itself to wait for events
-  local sEventName, p1, p2, p3, p4, p5 = computer.pullSignal(0.1)
+  -- change: optimization logic here.
+  -- if we did work (nWorkDone > 0), yield instantly (0).
+  -- if we are idle, sleep a tiny bit (0.05) to save ticks/energy/sanity.
+  local nTimeout = (nWorkDone > 0) and 0 or 0.05
+  local sEventName, p1, p2, p3, p4, p5 = computer.pullSignal(nTimeout)
   
   if sEventName then
-    -- this is a raw OS event.
-    -- punt it over to the Pipeline Manager (ring 1) to deal with.
     pcall(kernel.syscalls.signal_send, nKernelPid, kernel.nPipelinePid, "os_event", sEventName, p1, p2, p3, p4, p5)
   end
   
   -- 3. Clean up dead processes
-  -- TODO: actually do this sometime. memory leaks are a feature, right?
+  -- maybe later. garbage collection is hard.
 end

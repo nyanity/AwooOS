@@ -73,14 +73,20 @@ end
 function tSyscallHandlers.dkms_complete_irp(nCallerPid, pIrp, nStatusOverride)
     if not pIrp then return tStatus.STATUS_INVALID_PARAMETER end
     if nStatusOverride then pIrp.tIoStatus.nStatus = nStatusOverride end
-    
-    -- init would get true (from PM), nStatus, vInformation
+
+    if pIrp.nMajorFunction == 0x00 then -- IRP_MJ_CREATE
+       local pDev = g_tDeviceTree[pIrp.sDeviceName]
+       if pDev and pDev.pDriverObject then
+          pIrp.tIoStatus.vInformation = pDev.pDriverObject.nDriverPid
+       end
+    end
+    -- [[ END FIX ]]
+
     local bNoReply = false
     if pIrp.nFlags and type(pIrp.nFlags) == "number" then
-       -- manual bit check because lua 5.2
-       if (pIrp.nFlags / tDKStructs.IRP_FLAG_NO_REPLY) % 2 >= 1 then
-          bNoReply = true
-       end
+       local nFlagVal = tDKStructs.IRP_FLAG_NO_REPLY
+       local nRem = pIrp.nFlags % (nFlagVal * 2)
+       if nRem >= nFlagVal then bNoReply = true end
     end
     
     if not bNoReply then
@@ -233,11 +239,19 @@ while true do
         syscall("signal_send", tData.sender_pid, "syscall_return", ret1, ret2)
       end
       
-  elseif sSignalName == "vfs_io_request" then
+elseif sSignalName == "vfs_io_request" then
       local pIrp = p1
       if pIrp and type(pIrp) == "table" then
           g_tPendingIrps[pIrp.nSenderPid] = pIrp
           local nDispatchStatus = oDispatcher.DispatchIrp(pIrp, g_tDeviceTree)
+          
+          if pIrp.nMajorFunction == 0x00 then -- IRP_MJ_CREATE
+             local pDevice = g_tDeviceTree[pIrp.sDeviceName]
+             if pDevice and pDevice.pDriverObject then
+                pIrp.tIoStatus.vInformation = pDevice.pDriverObject.nDriverPid
+             end
+          end
+
           if nDispatchStatus ~= tStatus.STATUS_PENDING then
             tSyscallHandlers.dkms_complete_irp(0, pIrp, nDispatchStatus)
           end

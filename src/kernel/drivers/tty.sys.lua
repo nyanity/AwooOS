@@ -1,6 +1,6 @@
 --
 -- /drivers/tty.sys.lua
--- v4.3: Priority Shift
+-- v4.6: ANSI Cursor Control Support
 --
 
 local tStatus = require("errcheck")
@@ -11,11 +11,13 @@ g_tDriverInfo = {
   sDriverName = "AwooTTY",
   sDriverType = tDKStructs.DRIVER_TYPE_KMD,
   nLoadPriority = 100,
-  sVersion = "4.3.0",
+  sVersion = "4.6.0",
 }
 
 local g_pDeviceObject = nil
 local g_oGpuProxy = nil
+local g_tDispatchTable = nil
+
 
 local tAnsiColors = {
   [30] = 0x000000, [31] = 0xFF0000, [32] = 0x00FF00, [33] = 0xFFFF00,
@@ -29,6 +31,11 @@ local function scroll(pExt)
   g_oGpuProxy.fill(1, pExt.nHeight, pExt.nWidth, 1, " ")
   pExt.nCursorY = pExt.nHeight
 end
+
+local function safeDraw(fFunc, ...)
+    local bOk, sErr = pcall(fFunc, ...)
+end
+
 
 local function rawWrite(pExt, sText)
   if #sText == 0 then return end
@@ -44,23 +51,25 @@ local function rawWrite(pExt, sText)
       end
   else
       local sPart1 = string.sub(sText, 1, nRemainingSpace)
-      local sPart2 = string.sub(sText, nRemainingSpace + 1)
       g_oGpuProxy.set(pExt.nCursorX, pExt.nCursorY, sPart1)
+      
       pExt.nCursorX = 1
       if pExt.nCursorY < pExt.nHeight then pExt.nCursorY = pExt.nCursorY + 1 else scroll(pExt) end
-      rawWrite(pExt, sPart2)
+      
+      rawWrite(pExt, string.sub(sText, nRemainingSpace + 1))
   end
-end
-
-local function safeDraw(fFunc, ...)
-    local bOk, sErr = pcall(fFunc, ...)
-    -- ignore errors silently to prevent log spam loops
 end
 
 local function writeToScreen(pDeviceObject, sData)
   if not g_oGpuProxy then return end
   local pExt = pDeviceObject.pDeviceExtension
   local sStr = tostring(sData)
+  
+  if not sStr:find("[%c\27]") then
+     safeDraw(rawWrite, pExt, sStr)
+     return
+  end
+  
   local nLen = #sStr
   local nIdx = 1
   
@@ -79,51 +88,91 @@ local function writeToScreen(pDeviceObject, sData)
           if nByte == 10 then -- \n
               pExt.nCursorX = 1
               if pExt.nCursorY < pExt.nHeight then pExt.nCursorY = pExt.nCursorY + 1 else scroll(pExt) end
+              nIdx = nNextSpecial + 1
           elseif nByte == 13 then -- \r
               pExt.nCursorX = 1
+              nIdx = nNextSpecial + 1
           elseif nByte == 8 then -- \b
               if pExt.nCursorX > 1 then
                   pExt.nCursorX = pExt.nCursorX - 1
                   g_oGpuProxy.set(pExt.nCursorX, pExt.nCursorY, " ")
               end
+              nIdx = nNextSpecial + 1
           elseif nByte == 12 then -- \f
               g_oGpuProxy.fill(1, 1, pExt.nWidth, pExt.nHeight, " ")
               pExt.nCursorX, pExt.nCursorY = 1, 1
-          elseif nByte == 27 then -- ANSI escape code
+              nIdx = nNextSpecial + 1
+              
+          elseif nByte == 27 then
               if string.sub(sStr, nNextSpecial + 1, nNextSpecial + 1) == "[" then
-                  local sAnsiSeq = string.sub(sStr, nNextSpecial + 2, nNextSpecial + 3)
-
-                  if sAnsiSeq:sub(1,1) == "H" then -- \27[H (Set cursor pos to 1,1)
-                      pExt.nCursorX, pExt.nCursorY = 1, 1
-                      nNextSpecial = nNextSpecial + 2
+                  local nEndAnsi = string.find(sStr, "[a-zA-Z]", nNextSpecial + 2)
                   
-                  elseif sAnsiSeq == "2J" then -- \27[2J (Clear Screen)
-                      g_oGpuProxy.fill(1, 1, pExt.nWidth, pExt.nHeight, " ")
-                      pExt.nCursorX, pExt.nCursorY = 1, 1
-                      nNextSpecial = nNextSpecial + 3 
-                  
-                  else -- Color codes
-                      local nEndAnsi = string.find(sStr, "m", nNextSpecial)
-                      if nEndAnsi then
-                          local sCode = string.sub(sStr, nNextSpecial + 2, nEndAnsi - 1)
-                          for sSubCode in string.gmatch(sCode, "[^;]+") do
-                              local nColor = tonumber(sSubCode)
-                              if nColor and tAnsiColors[nColor] then
+                  if nEndAnsi and (nEndAnsi - nNextSpecial) < 20 then
+                      local sCmdChar = string.sub(sStr, nEndAnsi, nEndAnsi)
+                      local sParamStr = string.sub(sStr, nNextSpecial + 2, nEndAnsi - 1)
+                      
+                      local tParams = {}
+                      for sVal in string.gmatch(sParamStr, "%d+") do
+                         table.insert(tParams, tonumber(sVal))
+                      end
+                      
+                      if sCmdChar == "m" then
+                          for _, nColor in ipairs(tParams) do
+                              if tAnsiColors[nColor] then
                                   g_oGpuProxy.setForeground(tAnsiColors[nColor])
-                              elseif sSubCode == "0" or sSubCode == "" then
+                              elseif nColor == 0 then
                                   g_oGpuProxy.setForeground(0xFFFFFF)
                                   g_oGpuProxy.setBackground(0x000000)
                               end
                           end
-                          nNextSpecial = nEndAnsi
+                          if #tParams == 0 then
+                              g_oGpuProxy.setForeground(0xFFFFFF)
+                              g_oGpuProxy.setBackground(0x000000)
+                          end
+                          
+                      elseif sCmdChar == "H" or sCmdChar == "f" then
+                          -- ESC[y;xH
+                          local nY = tParams[1] or 1
+                          local nX = tParams[2] or 1
+                          
+                          pExt.nCursorY = math.max(1, math.min(pExt.nHeight, nY))
+                          pExt.nCursorX = math.max(1, math.min(pExt.nWidth, nX))
+                          
+                      elseif sCmdChar == "J" then
+                          -- ESC[2J
+                          if tParams[1] == 2 then
+                             g_oGpuProxy.fill(1, 1, pExt.nWidth, pExt.nHeight, " ")
+                             pExt.nCursorX, pExt.nCursorY = 1, 1
+                          end
+                          
+                      elseif sCmdChar == "A" then -- Up
+                          pExt.nCursorY = math.max(1, pExt.nCursorY - (tParams[1] or 1))
+                      elseif sCmdChar == "B" then -- Down
+                          pExt.nCursorY = math.min(pExt.nHeight, pExt.nCursorY + (tParams[1] or 1))
+                      elseif sCmdChar == "C" then -- Right
+                          pExt.nCursorX = math.min(pExt.nWidth, pExt.nCursorX + (tParams[1] or 1))
+                      elseif sCmdChar == "D" then -- Left
+                          pExt.nCursorX = math.max(1, pExt.nCursorX - (tParams[1] or 1))
                       end
+                      
+                      nIdx = nEndAnsi + 1
+                      nNextSpecial = nEndAnsi
+                  else
+                      nIdx = nNextSpecial + 1
                   end
+              else
+                  nIdx = nNextSpecial + 1
               end
+          else
+             nIdx = nNextSpecial + 1
           end
       end)
-      nIdx = nNextSpecial + 1
+      
+      if nIdx <= nNextSpecial then nIdx = nNextSpecial + 1 end
   end
 end
+
+-- [[ 3. IRP Handlers ]] --
 
 local function fCreate(d, i) oKMD.DkCompleteRequest(i, 0, 0) end
 local function fClose(d, i) oKMD.DkCompleteRequest(i, 0) end
@@ -141,13 +190,17 @@ local function fRead(d, i)
   end
 end
 
+-- [[ 4. Driver Entry ]] --
+
 function DriverEntry(pObj)
-  oKMD.DkPrint("AwooTTY v4.3 Loaded.")
+  oKMD.DkPrint("AwooTTY v4.6 ANSI Loaded.")
   pObj.tDispatch[tDKStructs.IRP_MJ_CREATE] = fCreate
   pObj.tDispatch[tDKStructs.IRP_MJ_CLOSE] = fClose
   pObj.tDispatch[tDKStructs.IRP_MJ_WRITE] = fWrite
   pObj.tDispatch[tDKStructs.IRP_MJ_READ] = fRead
   
+  g_tDispatchTable = pObj.tDispatch
+
   local st, dev = oKMD.DkCreateDevice(pObj, "\\Device\\TTY0")
   if st ~= 0 then return st end
   g_pDeviceObject = dev
@@ -186,6 +239,8 @@ end
 
 function DriverUnload() return 0 end
 
+-- [[ 5. Main Loop ]] --
+
 while true do
   local b, pid, sig, p1, p2, p3, p4 = syscall("signal_pull")
   if b then
@@ -193,25 +248,22 @@ while true do
         local s = DriverEntry(p1)
         syscall("signal_send", pid, "driver_init_complete", s, p1)
     elseif sig == "irp_dispatch" then
-        if p2 then p2(g_pDeviceObject, p1) end
+        local pIrp = p1
+        local fHandler = p2
+        if not fHandler and g_tDispatchTable and pIrp and pIrp.nMajorFunction then
+           fHandler = g_tDispatchTable[pIrp.nMajorFunction]
+        end
+        if fHandler then fHandler(g_pDeviceObject, pIrp) end
     elseif sig == "hardware_interrupt" and p1 == "key_down" then
         local ext = g_pDeviceObject and g_pDeviceObject.pDeviceExtension
         if ext and ext.pPendingReadIrp then
             local ch, code = p3, p4
             if code == 28 then -- Enter
-                -- save the data we need
                 local sResult = ext.sLineBuffer
                 local pIrp = ext.pPendingReadIrp
-                
-                -- clear the state so we don't process double enters
                 ext.pPendingReadIrp = nil
-                
-                -- tell the OS we are done. This unblocks init.lua immediately.
                 oKMD.DkCompleteRequest(pIrp, 0, sResult)
-                
-                -- NOW try to draw the newline. If this lags/fails, the OS doesn't care.
                 writeToScreen(g_pDeviceObject, "\n")
-                
             elseif code == 14 then -- Backspace
                 if #ext.sLineBuffer > 0 then
                     ext.sLineBuffer = ext.sLineBuffer:sub(1, -2)
