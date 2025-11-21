@@ -28,6 +28,10 @@ local g_tErrorCodes = {
   STATUS_INVALID_DRIVER_TYPE = 407,
   STATUS_DRIVER_UNLOAD_FAILED = 408,
   
+  -- THE NEW SHERIFF IN TOWN
+  STATUS_DRIVER_NO_IRQL = 410,         -- "you forgot the magic word"
+  STATUS_IRQL_NOT_LESS_OR_EQUAL = 411, -- classic bsod code. you touched memory at wrong level.
+  
   -- Access and Security errors
   STATUS_ACCESS_DENIED = 500,
   STATUS_PRIVILEGE_NOT_HELD = 501,
@@ -54,6 +58,10 @@ local g_tErrorStrings = {
   [406] = "STATUS_DEVICE_ALREADY_EXISTS: An attempt was made to create a device that already exists.",
   [407] = "STATUS_INVALID_DRIVER_TYPE: The driver type specified in g_tDriverInfo is not valid.",
   [408] = "STATUS_DRIVER_UNLOAD_FAILED: The driver's Unload function returned an error.",
+  
+  [410] = "STATUS_DRIVER_NO_IRQL: DRIVER REJECTED. Implementation of IRQL is MANDATORY.",
+  [411] = "STATUS_IRQL_NOT_LESS_OR_EQUAL: Driver attempted operation at illegal IRQL.",
+  
   [500] = "STATUS_ACCESS_DENIED: You do not have permission to perform this action.",
   [501] = "STATUS_PRIVILEGE_NOT_HELD: The operation requires a higher ring level.",
   [600] = "STATUS_INVALID_HANDLE: The provided file handle is not valid.",

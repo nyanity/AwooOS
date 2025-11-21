@@ -1,6 +1,6 @@
 --
 -- /drivers/tty.sys.lua
--- v4.6: ANSI Cursor Control Support
+-- v4.7: IRQL Compliance Update
 --
 
 local tStatus = require("errcheck")
@@ -11,7 +11,7 @@ g_tDriverInfo = {
   sDriverName = "AwooTTY",
   sDriverType = tDKStructs.DRIVER_TYPE_KMD,
   nLoadPriority = 100,
-  sVersion = "4.6.0",
+  sVersion = "4.7.0",
 }
 
 local g_pDeviceObject = nil
@@ -193,7 +193,12 @@ end
 -- [[ 4. Driver Entry ]] --
 
 function DriverEntry(pObj)
-  oKMD.DkPrint("AwooTTY v4.6 ANSI Loaded.")
+  oKMD.DkPrint("AwooTTY v4.7 IRQL-Verified Loaded.")
+  
+  -- mandatory irql init.
+  -- the terminal god demands passive level.
+  pObj.nCurrentIrql = tDKStructs.PASSIVE_LEVEL
+  
   pObj.tDispatch[tDKStructs.IRP_MJ_CREATE] = fCreate
   pObj.tDispatch[tDKStructs.IRP_MJ_CLOSE] = fClose
   pObj.tDispatch[tDKStructs.IRP_MJ_WRITE] = fWrite

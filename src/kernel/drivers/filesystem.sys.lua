@@ -9,6 +9,11 @@ g_tDriverInfo = { sDriverName = "AwooFSStub", sDriverType = tDKStructs.DRIVER_TY
 
 function DriverEntry(pDriverObject)
   oKMD.DkPrint("Filesystem Stub Driver loaded. Ready to mount future devices.")
+  
+  -- mandatory irql init.
+  -- filesystem operations block like crazy, so we definitely start at passive.
+  pDriverObject.nCurrentIrql = tDKStructs.PASSIVE_LEVEL
+  
   return tStatus.STATUS_SUCCESS
 end
 

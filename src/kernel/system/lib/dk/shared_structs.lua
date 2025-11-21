@@ -21,7 +21,12 @@ oDK.DRIVER_TYPE_CMD = "ComponentModeDriver" -- Ring 2, strict hardware binding. 
 
 oDK.IRP_FLAG_NO_REPLY = 0x10
 
-
+-- IRQL Levels (Interrupt Request Levels)
+-- if you don't respect these, the kernel god will smite you.
+oDK.PASSIVE_LEVEL = 0  -- chill mode. you can sleep, eat pizza, yield.
+oDK.APC_LEVEL     = 1  -- async procedure calls. slightly less chill.
+oDK.DISPATCH_LEVEL= 2  -- no sleeping allowed! fast io only. don't you dare yield.
+oDK.DIRQL         = 3  -- device interrupt. hardware is screaming at you. panic mode.
 
 -- The DRIVER_OBJECT
 -- this is the driver's soul. it represents the loaded driver image.
@@ -33,6 +38,10 @@ function oDK.fNewDriverObject()
     fDriverUnload = nil,       -- the function to call when unloading
     tDispatch = {},            -- the table of IRP handlers (e.g., [IRP_MJ_READ] = fMyReadFunc)
     tDriverInfo = {},          -- a copy of the driver's static info table
+    
+    -- MANDATORY IRQL FIELD.
+    -- if a driver doesn't have this initialized, we kill it.
+    nCurrentIrql = nil,        
   }
 end
 

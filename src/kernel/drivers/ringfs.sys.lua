@@ -25,7 +25,6 @@ local DEFAULT_BUFFER_SIZE = 4096
 -------------------------------------------------
 
 local function fRingDispatchCreate(pDeviceObject, pIrp)
-  -- oKMD.DkPrint("RingFS: Client connected.")
   oKMD.DkCompleteRequest(pIrp, tStatus.STATUS_SUCCESS)
 end
 
@@ -90,6 +89,10 @@ end
 
 function DriverEntry(pDriverObject)
   oKMD.DkPrint("RingFS: Spinning up the memory donut.")
+  
+  -- mandatory irql init.
+  -- round and round we go at passive speed.
+  pDriverObject.nCurrentIrql = tDKStructs.PASSIVE_LEVEL
   
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_CREATE] = fRingDispatchCreate
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_CLOSE] = fRingDispatchClose

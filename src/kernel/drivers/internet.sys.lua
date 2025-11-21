@@ -34,8 +34,6 @@ end
 
 local function fNetDispatchClose(pDeviceObject, pIrp)
   -- clean up the request object if it exists
-  -- we rely on the fact that PM sends us unique handles or we map by PID
-  -- for simplicity in this stub, we just assume one active request per PID per open
   local sKey = tostring(pIrp.nSenderPid)
   if g_tRequestMap[sKey] then
      pcall(g_tRequestMap[sKey].close)
@@ -55,19 +53,16 @@ local function fNetDispatchWrite(pDeviceObject, pIrp)
   sUrl = sUrl:gsub("\n", "")
   
   -- start the request
-  -- we use the raw component proxy directly
   local bOk, oHandle = pcall(g_oNetProxy.request, sUrl)
   
   if bOk and oHandle then
-     -- store handle for subsequent reads
      g_tRequestMap[tostring(pIrp.nSenderPid)] = oHandle
      
-     -- wait for connection to be established (optional, but polite)
+     -- wait for connection to be established
      local bFinished = false
      while not bFinished do
         local bSuccess, sErr = oHandle.finishConnect()
         if bSuccess then bFinished = true end
-        -- if sErr then... handle error? nah, we ball.
         if not bSuccess and sErr then 
             oKMD.DkCompleteRequest(pIrp, tStatus.STATUS_UNSUCCESSFUL, sErr)
             return
@@ -89,8 +84,6 @@ local function fNetDispatchRead(pDeviceObject, pIrp)
   end
   
   -- read a chunk. 
-  -- note: in a real os, this should be async/non-blocking.
-  -- here we block the driver process, but since we yield in the loop, it's okay-ish.
   local sData = oHandle.read(math.huge) 
   
   if sData then
@@ -108,6 +101,10 @@ end
 function DriverEntry(pDriverObject)
   oKMD.DkPrint("AwooNet: Initializing...")
   
+  -- mandatory irql init.
+  -- downloading cat pictures is a passive activity.
+  pDriverObject.nCurrentIrql = tDKStructs.PASSIVE_LEVEL
+  
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_CREATE] = fNetDispatchCreate
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_CLOSE] = fNetDispatchClose
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_WRITE] = fNetDispatchWrite
@@ -118,8 +115,6 @@ function DriverEntry(pDriverObject)
   g_pDeviceObject = pDeviceObj
   
   -- find hardware
-  local nProxyStatus, oProxy = oKMD.DkGetHardwareProxy(nil) -- nil finds first available? no, need scan.
-  
   -- manual scan via syscall because DkGetHardwareProxy expects address
   local bOk, tList = syscall("raw_component_list", "internet")
   if bOk and tList then

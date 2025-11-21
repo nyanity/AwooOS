@@ -414,33 +414,41 @@ local function wait_with_throbber(sMessage, nSeconds)
   if oGpu and sScreen then 
      oGpu.bind(sScreen) 
      nWidth, nHeight = oGpu.getResolution()
+     -- [[ FIX: FORCE WHITE ]] --
+     oGpu.setForeground(0xFFFFFF) 
   end
 
   local nStartTime = computer.uptime()
   local nDeadline = nStartTime + nSeconds
   
-  local sPattern = " * * * "
   local nFrame = 0
-  local nThrobberWidth = 12 -- (  * * *   )
+  local nThrobberWidth = 12 
   
-  syscall("kernel_log", "[PM] " .. sMessage)
+  -- Log to kernel log too, for history
+  syscall("kernel_log", sMessage)
   
   while computer.uptime() < nDeadline do
     if oGpu then
+       -- Ensure color is reset every frame in case a background log changed it
+       oGpu.setForeground(0xFFFFFF) 
+       
        local nPos = math.floor(nFrame / 1.5) % (nThrobberWidth * 2 - 2)
        if nPos >= nThrobberWidth then nPos = (nThrobberWidth * 2 - 2) - nPos end
        
-       local sLine = "("
+       local sLine = "["
        for i = 0, nThrobberWidth - 1 do
           if i >= nPos and i < nPos + 3 then
-             sLine = sLine .. "*"
+             sLine = sLine .. "="
           else
              sLine = sLine .. " "
           end
        end
-       sLine = sLine .. ")"
-       local sFullMsg = string.format("%s %s", sLine, "Driver loading...")
-       oGpu.set(1, nHeight, sFullMsg .. string.rep(" ", nWidth - #sFullMsg))
+       sLine = sLine .. "]"
+       local sFullMsg = string.format("%s %s", sLine, sMessage)
+       
+       -- Clear line first (optional but cleaner)
+       oGpu.fill(1, nHeight, nWidth, 1, " ")
+       oGpu.set(1, nHeight, sFullMsg)
        
        nFrame = nFrame + 1
     end
@@ -448,37 +456,35 @@ local function wait_with_throbber(sMessage, nSeconds)
     syscall("process_yield")
   end
   
-  if oGpu then oGpu.fill(1, nHeight, nWidth, 1, " ") end
+  if oGpu then 
+      oGpu.fill(1, nHeight, nWidth, 1, " ") 
+      oGpu.setForeground(0xFFFFFF) -- Final reset before init
+  end
 end
 
 local function __scandrvload()
-  --syscall("kernel_log", "[PM] Loading RingFS Driver...")
-  --syscall("signal_send", nDkmsPid, "load_driver_path", "/drivers/ringfs.sys.lua")
+  syscall("kernel_log", "Initiating device detection sequence...")
   
-  syscall("kernel_log", "[PM] Loading TTY Driver explicitly...")
-  --raw_computer.beep(600, 0.01)
   syscall("signal_send", nDkmsPid, "load_driver_path", "/drivers/tty.sys.lua")
-  --raw_computer.beep(600, 0.01)
-  
-  local deadline = computer.uptime() + 0.0
-  while computer.uptime() < deadline do syscall("process_yield") end
-
-  syscall("kernel_log", "[PM] Scanning components...")
-  --raw_computer.beep(600, 0.01)
+  syscall("process_wait", 0)
 
   local sRootUuid, oRootProxy = syscall("kernel_get_root_fs")
-  if not oRootProxy then syscall("kernel_panic", "Pipeline could not get root FS info.") end
   vfs_state.oRootFs = oRootProxy
   
   local bListOk, tCompList = syscall("raw_component_list")
   if not bListOk then return end
   
+  local nFound = 0
   for sAddr, sCtype in pairs(tCompList) do
-    if sCtype ~= "screen" and sCtype ~= "gpu" and sCtype ~= "keyboard" then
-        syscall("kernel_log", "[PM] Loading driver for " .. sCtype)
+    nFound = nFound + 1
+    if sCtype ~= "screen" and sCtype ~= "gpu" and sCtype ~= "keyboard" and sCtype ~= "computer" and sCtype ~= "eeprom" then
+        local sShortAddr = sAddr:sub(1, 8)
+        syscall("kernel_log", string.format("Found hardware: %s @ %s", sCtype, sShortAddr))
+        
         syscall("signal_send", nDkmsPid, "load_driver_for_component", sCtype, sAddr)
     end
   end
+  syscall("kernel_log", string.format("Hardware scan complete. Devices enumerated: %d", nFound))
 end
 
 
@@ -504,6 +510,9 @@ local function process_fstab()
            if type(tFstab) == "table" then
                for _, tEntry in ipairs(tFstab) do
                   if tEntry.type == "ringfs" then
+                     local sOpts = tEntry.options or "defaults"
+                     syscall("kernel_log", string.format("[INFO] Mounting %s -> %s (%s)", tEntry.type, tEntry.mount, sOpts))
+
                      -- 1. Load the driver explicitly
                      if not bRingFsLoaded then
                          syscall("kernel_log", "[PM] Auto-loading RingFS...")
@@ -579,9 +588,9 @@ else
    process_autoload()
 end
 
-wait_with_throbber("Waiting for system stabilization...", 1.0)
+wait_with_throbber("exec: /init.lua", 0.75)
 
-syscall("kernel_log", "[PM] Silence on deck. Handing off to userspace.")
+syscall("kernel_log", "[PM] Handing off to userspace.")
 syscall("kernel_set_log_mode", false)
 
 
@@ -591,8 +600,13 @@ local sInitPath = env.INIT_PATH or "/bin/init.lua"
 syscall("kernel_log", "[PM] Spawning " .. sInitPath .. "...")
 local nInitPid, sInitErr = syscall("process_spawn", sInitPath, 3)
 
-if not nInitPid then syscall("kernel_log", "[PM] FAILED TO SPAWN INIT: " .. tostring(sInitErr))
-else syscall("kernel_log", "[PM] Init spawned as PID " .. tostring(nInitPid)) end
+if not nInitPid then 
+    syscall("kernel_log", "[FAIL] Failed to spawn init system: " .. tostring(sInitErr))
+    syscall("kernel_panic", "No init found.")
+else 
+    -- This will likely be cleared by init immediately, but it's nice to see for 1 frame
+    syscall("kernel_log", string.format("[ OK ] boot PID 1: %d", nInitPid))
+end
 
 
 while true do
