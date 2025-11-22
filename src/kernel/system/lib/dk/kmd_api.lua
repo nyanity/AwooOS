@@ -107,4 +107,24 @@ function oKMD.DkCreateComponentDevice(pDriverObject, sDeviceTypeName)
   return tStatus.STATUS_SUCCESS, pDeviceObject
 end
 
+-- attach your filter driver to the stack.
+-- sSourceDeviceName: The device YOU created (the filter).
+-- sTargetDeviceName: The device you want to SPY on.
+function oKMD.DkAttachDevice(sSourceDeviceName, sTargetDeviceName)
+    local pAttachedToDevice, nStatus = CallDkms("dkms_attach_device", sSourceDeviceName, sTargetDeviceName)
+    if nStatus == tStatus.STATUS_SUCCESS then
+        return tStatus.STATUS_SUCCESS, pAttachedToDevice
+    else
+        return nStatus, nil
+    end
+end
+
+-- pass the hot potato down the stack.
+-- call this in your filter driver when you're done snooping.
+function oKMD.DkCallDriver(pDeviceObject, pIrp)
+    -- we just forward the request to dkms, which knows who owns the device.
+    fSyscall("dkms_call_driver", pDeviceObject.sDeviceName, pIrp)
+    return tStatus.STATUS_PENDING
+end
+
 return oKMD

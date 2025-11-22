@@ -54,6 +54,10 @@ function oDK.fNewDeviceObject()
     sDeviceName = nil,         -- e.g., "\\Device\\Serial0"
     pDeviceExtension = {},     -- a scratchpad for the driver to store its own state
     nFlags = 0,
+    
+    -- filter driver magic.
+    -- points to the device attached ON TOP of us.
+    pAttachedDevice = nil,     
   }
 end
 

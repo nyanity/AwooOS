@@ -36,6 +36,10 @@ syscall("syscall_override", "dkms_get_next_index")
 syscall("syscall_override", "KeRaiseIrql")
 syscall("syscall_override", "KeLowerIrql")
 
+-- new toys for the filter boys
+syscall("syscall_override", "dkms_attach_device")
+syscall("syscall_override", "dkms_call_driver")
+
 local tSyscallHandlers = {}
 
 -- [[ IRQL MANAGEMENT ]] --
@@ -148,6 +152,42 @@ function tSyscallHandlers.dkms_get_next_index(nCallerPid, sDeviceType)
     
     return nIndex, tStatus.STATUS_SUCCESS
 end
+
+-- attaches a device to another. transparently redirects traffic.
+function tSyscallHandlers.dkms_attach_device(nCallerPid, sSourceDeviceName, sTargetDeviceName)
+    local pSourceDev = g_tDeviceTree[sSourceDeviceName]
+    local pTargetDev = g_tDeviceTree[sTargetDeviceName]
+    
+    if not pSourceDev or not pTargetDev then return nil, tStatus.STATUS_NO_SUCH_DEVICE end
+    
+    -- check permissions? nah, we trust drivers loaded by root.
+    
+    -- climb to the top of the stack.
+    -- if 3 drivers attach to the same device, we want to be at the very top.
+    local pTopDev = pTargetDev
+    while pTopDev.pAttachedDevice do
+        pTopDev = pTopDev.pAttachedDevice
+    end
+    
+    -- link 'em up
+    pTopDev.pAttachedDevice = pSourceDev
+    
+    syscall("kernel_log", "[DKMS] Attached " .. sSourceDeviceName .. " to stack of " .. sTargetDeviceName)
+    
+    -- return the device we just attached to (so the filter knows where to send IRPs next)
+    return pTopDev, tStatus.STATUS_SUCCESS
+end
+
+-- manually calls a driver's entry point. used for io_call_driver.
+function tSyscallHandlers.dkms_call_driver(nCallerPid, sTargetDeviceName, pIrp)
+    local pDev = g_tDeviceTree[sTargetDeviceName]
+    if not pDev then return nil, tStatus.STATUS_NO_SUCH_DEVICE end
+    
+    -- use existing dispatch logic
+    local nStatus = oDispatcher.DispatchIrp(pIrp, g_tDeviceTree, sTargetDeviceName) -- passing explicit name to avoid recursion lookup
+    return nStatus, tStatus.STATUS_SUCCESS
+end
+
 
 local function inspect_driver(sDriverPath)
   local sCode, sErr = syscall("vfs_read_file", sDriverPath)
@@ -346,10 +386,16 @@ elseif sSignalName == "vfs_io_request" then
       local pIrp = p1
       if pIrp and type(pIrp) == "table" then
           g_tPendingIrps[pIrp.nSenderPid] = pIrp
+          
+          -- use the root name initially, dispatcher will climb stack
           local nDispatchStatus = oDispatcher.DispatchIrp(pIrp, g_tDeviceTree)
           
           if pIrp.nMajorFunction == 0x00 then -- IRP_MJ_CREATE
              local pDevice = g_tDeviceTree[pIrp.sDeviceName]
+             -- we might have climbed the stack, so grab the top one if possible,
+             -- but here we just need the PID to return to the user (if it's a direct connection)
+             -- logic: if it's attached, the filter now owns the connection?
+             -- actually, for VFS, we just need status success.
              if pDevice and pDevice.pDriverObject then
                 pIrp.tIoStatus.vInformation = pDevice.pDriverObject.nDriverPid
              end

@@ -16,7 +16,52 @@ local nDkmsPid, sDkmsErr = syscall("process_spawn", "/system/dkms.lua", 1)
 if not nDkmsPid then syscall("kernel_panic", "Could not spawn DKMS: " .. tostring(sDkmsErr)) end
 syscall("kernel_log", "[PM] DKMS process started as PID " .. tostring(nDkmsPid))
 
-local vfs_state = { oRootFs = nil, nNextFd = 0, tOpenHandles = {} }
+-- [[ OBMANAGER - SECURITY SUBSYSTEM ]] --
+-- instead of a simple list of fds, we now have:
+-- 1. tGlobalObjectTable: The real resources. Keyed by random UUIDs (SecureHandles).
+-- 2. tProcessFdMap: Maps a process's simple integer FD (0, 1, 2) to a SecureHandle.
+-- prevents guessing attacks because fd '5' for process A is meaningless for process B.
+
+local vfs_state = { 
+  oRootFs = nil, 
+  -- nNextFd removed. fd allocation is per-process now.
+}
+
+local tGlobalObjectTable = {} -- [sSecureHandle] = { type="file/device", ... }
+local tProcessFdMap = {}      -- [nPid] = { [nFdInt] = sSecureHandle }
+
+local function generate_handle()
+  -- low budget uuid generation
+  local sTemplate = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
+  return string.gsub(sTemplate, "[xy]", function (c)
+      local v = (c == "x") and math.random(0, 0xf) or math.random(8, 0xb)
+      return string.format("%x", v)
+  end)
+end
+
+-- ensures a process has a mapping table
+local function get_proc_map(nPid)
+  if not tProcessFdMap[nPid] then tProcessFdMap[nPid] = {} end
+  return tProcessFdMap[nPid]
+end
+
+-- finds a free integer fd for the process (like standard posix, lowest available)
+local function alloc_fd(nPid)
+  local tMap = get_proc_map(nPid)
+  local i = 0 -- start from 0 (stdin)
+  while tMap[i] do
+     i = i + 1
+  end
+  return i
+end
+
+-- lookup secure handle from integer fd
+local function resolve_fd(nPid, nFd)
+  local tMap = tProcessFdMap[nPid]
+  if not tMap then return nil end
+  return tMap[nFd]
+end
+
 
 syscall("syscall_override", "vfs_open")
 syscall("syscall_override", "vfs_read")
@@ -177,6 +222,8 @@ local function check_access(nPid, sPath, sMode)
 end
 
 function vfs_state.handle_open(nSenderPid, sPath, sMode)
+  local tInternalObj = nil
+
   if string.sub(sPath, 1, 5) == "/dev/" then
     local tDKStructs = require("shared_structs")
     local pIrp = tDKStructs.fNewIrp(tDKStructs.IRP_MJ_CREATE)
@@ -193,32 +240,39 @@ function vfs_state.handle_open(nSenderPid, sPath, sMode)
     local nStatus, vInfo = wait_for_dkms()
     
     if nStatus == 0 then 
-       local nFd = vfs_state.nNextFd
-       vfs_state.nNextFd = vfs_state.nNextFd + 1
-      
        local nDriverPid = (type(vInfo) == "number") and vInfo or nDkmsPid
        
-       vfs_state.tOpenHandles[nFd] = { 
+       tInternalObj = { 
          type = "device", 
          devname = pIrp.sDeviceName,
          driverPid = nDriverPid
        }
-       return true, nFd
     else
        return nil, "Device Open Failed: " .. tostring(nStatus)
     end
-  end
-
-  if not check_access(nSenderPid, sPath, sMode or "r") then
-     return nil, "Permission denied"
+    
+  else
+    -- Regular File
+    if not check_access(nSenderPid, sPath, sMode or "r") then
+       return nil, "Permission denied"
+    end
+    
+    local bOk, hHandle, sReason = syscall("raw_component_invoke", vfs_state.oRootFs.address, "open", sPath, sMode)
+    if not hHandle then return nil, sReason end
+    
+    tInternalObj = { type = "file", handle = hHandle }
   end
   
-  local bOk, hHandle, sReason = syscall("raw_component_invoke", vfs_state.oRootFs.address, "open", sPath, sMode)
-  if not hHandle then return nil, sReason end
+  -- [[ HANDLE ALLOCATION ]] --
+  -- 1. Create secure handle
+  local sSecureHandle = generate_handle()
+  tGlobalObjectTable[sSecureHandle] = tInternalObj
   
-  local nFd = vfs_state.nNextFd
-  vfs_state.nNextFd = vfs_state.nNextFd + 1
-  vfs_state.tOpenHandles[nFd] = { type = "file", handle = hHandle }
+  -- 2. Allocate virtual FD for this process
+  local nFd = alloc_fd(nSenderPid)
+  
+  -- 3. Map Virtual FD -> Secure Handle
+  get_proc_map(nSenderPid)[nFd] = sSecureHandle
   
   return true, nFd
 end
@@ -263,7 +317,9 @@ function vfs_state.handle_chmod(nSenderPid, sPath, nMode)
 end
 
 function vfs_state.handle_write(nSenderPid, nFd, sData)
-  local tHandle = vfs_state.tOpenHandles[nFd]
+  local sSecureHandle = resolve_fd(nSenderPid, nFd)
+  local tHandle = tGlobalObjectTable[sSecureHandle]
+  
   if not tHandle then return nil, "Invalid Handle" end
   
   if tHandle.type == "file" then
@@ -293,7 +349,9 @@ function vfs_state.handle_write(nSenderPid, nFd, sData)
 end
 
 function vfs_state.handle_read(nSenderPid, nFd, nCount)
-  local tHandle = vfs_state.tOpenHandles[nFd]
+  local sSecureHandle = resolve_fd(nSenderPid, nFd)
+  local tHandle = tGlobalObjectTable[sSecureHandle]
+  
   if not tHandle then return nil, "Invalid Handle" end
   
   if tHandle.type == "file" then
@@ -344,7 +402,10 @@ function vfs_state.handle_list(nSenderPid, sPath)
 end
 
 function vfs_state.handle_close(nSenderPid, nFd)
-    local tHandle = vfs_state.tOpenHandles[nFd]
+    local sSecureHandle = resolve_fd(nSenderPid, nFd)
+    if not sSecureHandle then return nil end
+    
+    local tHandle = tGlobalObjectTable[sSecureHandle]
     if not tHandle then return nil end
     
     if tHandle.type == "file" then
@@ -359,7 +420,10 @@ function vfs_state.handle_close(nSenderPid, nFd)
         wait_for_dkms()
     end
     
-    vfs_state.tOpenHandles[nFd] = nil
+    -- Cleanup tables
+    tGlobalObjectTable[sSecureHandle] = nil
+    tProcessFdMap[nSenderPid][nFd] = nil
+    
     return true
 end
 
