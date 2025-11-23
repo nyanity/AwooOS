@@ -58,10 +58,7 @@ The **Ringed Kernel Authority** replaces standard permission checks.
 *   Tier 3 HDD or RAID.
 
 **Installation:**
-1.  Boot from the Axis OS installer disk.
-2.  Run `install`.
-3.  Select target drive (drive will be formatted).
-4.  Reboot.
+no current installer
 
 **Post-Install:**
 Upon first boot, the **Axis Setup Utility** (BIOS) will run. You can configure boot timeout, log levels, and memory testing behavior here.
