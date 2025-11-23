@@ -1,1 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Axis OS | Xen Architecture</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&family=VT323&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            /* Default Theme (XEN) */
+            --bg-color: #050505;
+            --surface-color: #0a0a0a;
+            --border-color: #222;
+            --text-primary: #e0e0e0;
+            --text-secondary: #888888;
+            --accent-color: #00bcd4;
+            --accent-glow: rgba(0, 188, 212, 0.4);
+            --accent-dim: rgba(0, 188, 212, 0.05);
+            --success-color: #55ff55;
+            --error-color: #ff5555;
+            --grid-color: rgba(255, 255, 255, 0.06); /* Slightly more visible for canvas */
+            
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+            --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+            --border-radius: 2px;
+            --card-gradient: linear-gradient(145deg, var(--surface-color), var(--bg-color));
+        }
 
+        /* --- THEME OVERRIDES --- */
+        [data-theme="sunset"] {
+            --bg-color: #120b18;
+            --surface-color: #1a0f24;
+            --border-color: #3d2a4a;
+            --accent-color: #ff9e42;
+            --accent-glow: rgba(255, 158, 66, 0.4);
+            --accent-dim: rgba(255, 158, 66, 0.1);
+            --grid-color: rgba(255, 158, 66, 0.08);
+        }
+
+        [data-theme="crimson"] {
+            --bg-color: #080202;
+            --surface-color: #110505;
+            --border-color: #331111;
+            --text-primary: #ffffff;
+            --accent-color: #ff3333;
+            --accent-glow: rgba(255, 51, 51, 0.4);
+            --accent-dim: rgba(255, 51, 51, 0.1);
+            --success-color: #ffffff;
+            --grid-color: rgba(255, 51, 51, 0.08);
+        }
+
+        [data-theme="mint"] {
+            --bg-color: #020805;
+            --surface-color: #05140c;
+            --border-color: #11291f;
+            --accent-color: #00ff9d;
+            --accent-glow: rgba(0, 255, 157, 0.4);
+            --accent-dim: rgba(0, 255, 157, 0.1);
+            --grid-color: rgba(0, 255, 157, 0.08);
+        }
+
+        /* --- AWARD MODULAR BIOS THEME --- */
+        [data-theme="award"] {
+            --bg-color: #0000AA;
+            --surface-color: #0000AA;
+            --border-color: #FFFFFF;
+            --text-primary: #FFFFFF;
+            --text-secondary: #CCCCCC;
+            --accent-color: #FFFF55;
+            --accent-glow: rgba(255, 255, 0, 0);
+            --accent-dim: rgba(255, 255, 255, 0.1);
+            --success-color: #FFFF55;
+            --error-color: #FF5555;
+            --grid-color: rgba(0,0,0,0); /* Transparent grid */
+            
+            --font-sans: 'VT323', monospace;
+            --font-mono: 'VT323', monospace;
+            --border-radius: 0px;
+            --card-gradient: none;
+        }
+        
+        [data-theme="award"] .card, 
+        [data-theme="award"] .btn,
+        [data-theme="award"] .cmd-box { border: 2px solid white; box-shadow: none !important; }
+        [data-theme="award"] .hero-glow { display: none; }
+        [data-theme="award"] .btn:hover { background: #AA0000; color: white; }
+        [data-theme="award"] h1, [data-theme="award"] h2, [data-theme="award"] h3 { text-transform: uppercase; }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            line-height: 1.6;
+            overflow-x: hidden;
+            transition: background-color 0.6s ease, color 0.6s ease;
+        }
+
+        /* --- CANVAS BACKGROUND --- */
+        #bgCanvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* --- Animations --- */
+        .fade-up { opacity: 0; transform: translateY(20px); animation: fadeUpAnim 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .delay-1 { animation-delay: 0.1s; }
+        .delay-2 { animation-delay: 0.2s; }
+        .delay-3 { animation-delay: 0.3s; }
+        .delay-4 { animation-delay: 0.4s; }
+        @keyframes fadeUpAnim { to { opacity: 1; transform: translateY(0); } }
+
+        /* --- Layout --- */
+        .container { max-width: 1200px; margin: 0 auto; padding: 0 2rem; position: relative; z-index: 2; }
+
+        header {
+            border-bottom: 1px solid var(--border-color);
+            padding: 1.5rem 0;
+            position: sticky; top: 0;
+            background: rgba(5, 5, 5, 0.85);
+            backdrop-filter: blur(12px);
+            z-index: 100;
+            transition: border-color 0.6s ease, background 0.6s ease;
+        }
+        
+        [data-theme="award"] header { background: #0000AA; border-bottom: 2px solid white; backdrop-filter: none; }
+        [data-theme="sunset"] header { background: rgba(18, 11, 24, 0.85); }
+
+        nav { display: flex; justify-content: space-between; align-items: center; }
+        .logo { font-family: var(--font-mono); font-weight: 700; font-size: 1.2rem; letter-spacing: -1px; cursor: pointer; transition: color 0.3s; }
+        .logo:hover { color: var(--accent-color); text-shadow: 0 0 10px var(--accent-glow); }
+        .logo span { color: var(--accent-color); }
+        
+        .nav-controls { display: flex; align-items: center; gap: 2rem; }
+        .nav-links a { color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; transition: all 0.2s; cursor: pointer; }
+        .nav-links a:hover { color: var(--text-primary); }
+
+        .theme-select {
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+            padding: 4px 8px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            border-radius: var(--border-radius);
+            outline: none;
+            cursor: pointer;
+        }
+        .theme-select:hover { color: var(--accent-color); border-color: var(--accent-color); }
+        [data-theme="award"] .theme-select { border: 1px solid white; color: white; background: #0000AA; }
+
+        /* --- Hero --- */
+        .hero { padding: 8rem 0 6rem; border-bottom: 1px solid var(--border-color); position: relative; overflow: visible; transition: border-color 0.6s ease; }
+        .hero-glow {
+            position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+            background: radial-gradient(circle at 50% 50%, var(--accent-glow), transparent 50%),
+                        radial-gradient(circle at 80% 30%, var(--accent-dim), transparent 40%);
+            z-index: 1; pointer-events: none; opacity: 0.2;
+            animation: auroraMove 15s ease-in-out infinite alternate;
+            transition: all 0.6s ease;
+        }
+        @keyframes auroraMove { 0% { transform: translate(0, 0) rotate(0deg); } 100% { transform: translate(-20px, 20px) rotate(2deg); } }
+
+        .hero h1 { 
+            font-size: 4.5rem; line-height: 1.05; margin-bottom: 1.5rem; letter-spacing: -3px; 
+            background: linear-gradient(to right, var(--text-primary), var(--text-secondary)); 
+            -webkit-background-clip: text; color: transparent; position: relative; z-index: 2; 
+        }
+        [data-theme="award"] .hero h1 { background: none; color: white; text-shadow: 2px 2px 0px #000; letter-spacing: 0px; }
+        .hero p { font-size: 1.25rem; color: var(--text-secondary); max-width: 600px; margin-bottom: 2.5rem; position: relative; z-index: 2; transition: color 0.6s; }
+
+        .btn {
+            display: inline-flex; align-items: center; padding: 0.8rem 1.8rem; background: var(--text-primary); color: var(--bg-color); text-decoration: none; font-weight: 600; border-radius: var(--border-radius); transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); cursor: pointer; border: none; font-size: 1rem;
+        }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 0 20px rgba(255,255,255,0.2); }
+        .btn-outline { background: transparent; border: 1px solid var(--border-color); color: var(--text-primary); margin-left: 1rem; }
+        .btn-outline:hover { border-color: var(--text-primary); background: rgba(255,255,255,0.05); }
+
+        .installer-wrapper { margin-top: 2rem; max-height: 0; overflow: hidden; transition: max-height 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s; opacity: 0; position: relative; z-index: 10; }
+        .installer-wrapper.open { max-height: 200px; opacity: 1; }
+        
+        .cmd-box { background: var(--bg-color); border: 1px solid var(--border-color); border-left: 3px solid var(--accent-color); padding: 1.5rem; font-family: var(--font-mono); display: flex; align-items: center; justify-content: space-between; max-width: 700px; cursor: pointer; transition: all 0.2s; gap: 2rem; }
+        .cmd-box:hover { border-color: var(--text-secondary); }
+        .cmd-text { color: var(--text-primary); word-break: break-all; flex: 1; line-height: 1.4; }
+        .cmd-text::before { content: "$ "; color: var(--text-secondary); }
+        .copy-hint { font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; flex-shrink: 0; border: 1px solid var(--border-color); padding: 4px 8px; border-radius: var(--border-radius); }
+        .cmd-box.copied { border-color: var(--success-color); border-left-color: var(--success-color); }
+        .cmd-box.copied .copy-hint { color: var(--bg-color); background: var(--success-color); border-color: var(--success-color); font-weight: bold; }
+
+        /* --- Architecture Grid --- */
+        .architecture { padding: 6rem 0; position: relative; z-index: 2; }
+        .section-header { margin-bottom: 4rem; border-left: 4px solid var(--accent-color); padding-left: 1.5rem; }
+        .section-header h2 { font-size: 1.8rem; text-transform: uppercase; letter-spacing: 3px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2rem; }
+        
+        .card { background: var(--card-gradient); border: 1px solid var(--border-color); padding: 2.5rem; transition: all 0.4s; position: relative; overflow: hidden; border-radius: var(--border-radius); }
+        .card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: var(--accent-color); transform: scaleX(0); transform-origin: left; transition: transform 0.4s; }
+        .card:hover { transform: translateY(-5px); border-color: var(--text-secondary); }
+        .card:hover::before { transform: scaleX(1); }
+        .card:hover h3 { color: var(--accent-color); }
+        .card-icon { font-family: var(--font-mono); color: var(--text-secondary); font-size: 0.8rem; margin-bottom: 1.5rem; display: block; letter-spacing: 1px; }
+        .card h3 { font-size: 1.6rem; margin-bottom: 1rem; transition: color 0.3s; }
+        .card p { color: var(--text-secondary); font-size: 1rem; }
+
+        /* --- Configurator / Terminal --- */
+        .configurator-section { padding: 4rem 0; background: rgba(0,0,0,0.2); border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); position: relative; z-index: 2; transition: border-color 0.6s ease; }
+        
+        .config-controls { display: flex; gap: 1rem; margin-bottom: 1.5rem; align-items: center; flex-wrap: wrap; }
+        .uuid-input {
+            background: var(--surface-color); border: 1px solid var(--border-color); color: var(--text-primary);
+            font-family: var(--font-mono); padding: 0.8rem 1rem; width: 350px; outline: none; transition: border-color 0.3s;
+            border-radius: var(--border-radius);
+        }
+        .uuid-input:focus { border-color: var(--accent-color); }
+        .uuid-input::placeholder { color: var(--text-secondary); }
+        [data-theme="award"] .uuid-input { background: #0000AA; border: 1px solid white; color: yellow; }
+
+        .terminal-window {
+            background: rgba(10,10,10,0.8); border: 1px solid var(--border-color); border-radius: var(--border-radius); padding: 1.5rem;
+            font-family: var(--font-mono); font-size: 0.9rem; height: 300px; overflow: hidden; position: relative;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8); backdrop-filter: blur(5px);
+        }
+        [data-theme="award"] .terminal-window { background: black; border: 2px solid #888; box-shadow: none; backdrop-filter: none; }
+
+        .log-container { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+        .log-line { display: flex; margin-bottom: 0.3rem; animation: slideInLog 0.3s ease-out; }
+        .log-icon { width: 24px; text-align: center; margin-right: 10px; }
+        .log-text { color: var(--text-primary); flex: 1; }
+        .spinner { animation: spin 1s linear infinite; display: inline-block; color: var(--accent-color); }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        @keyframes slideInLog { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* --- Toast --- */
+        .toast-container { position: fixed; bottom: 30px; right: 30px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        .toast { background: var(--surface-color); border: 1px solid var(--border-color); border-left: 3px solid var(--accent-color); padding: 1rem 1.5rem; border-radius: var(--border-radius); color: var(--text-primary); font-family: var(--font-mono); font-size: 0.9rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: flex; align-items: center; gap: 12px; animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; transform: translateX(50px); }
+        .toast.success { border-left-color: var(--success-color); }
+        .toast.error { border-left-color: var(--error-color); }
+        @keyframes slideIn { to { opacity: 1; transform: translateX(0); } }
+        @keyframes fadeOut { to { opacity: 0; transform: translateY(10px); } }
+
+        footer { padding: 4rem 0; text-align: center; color: var(--text-secondary); font-size: 0.8rem; border-top: 1px solid var(--border-color); position: relative; z-index: 2; transition: border-color 0.6s ease; }
+
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 3rem; }
+            .uuid-input { width: 100%; }
+            .config-controls { flex-direction: column; align-items: flex-start; }
+            .nav-controls { display: none; }
+        }
+    </style>
+</head>
+<body data-theme="xen">
+
+    <!-- Interactive Grid Canvas -->
+    <canvas id="bgCanvas"></canvas>
+
+    <header>
+        <div class="container">
+            <nav>
+                <div class="logo">AXIS<span>OS</span></div>
+                <div class="nav-controls">
+                    <div class="nav-links">
+                        <a onclick="scrollToSection('architecture', 'Navigating to Core...')">Core</a>
+                        <a onclick="scrollToSection('deploy', 'Navigating to Deployment...')">Deploy</a>
+                        <a href="docs.html">Docs</a>
+                        <a href="https://github.com/nyanity/AxisOS" target="_blank">GitHub</a>
+                    </div>
+                    <select id="themeSelector" class="theme-select" onchange="setTheme(this.value)">
+                        <option value="xen">XEN // Default</option>
+                        <option value="sunset">SUNSET // Vapor</option>
+                        <option value="crimson">CRIMSON // Red</option>
+                        <option value="mint">MINT // Matrix</option>
+                        <option value="award">AWARD BIOS</option>
+                    </select>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="hero-glow"></div>
+        <div class="container">
+            <span class="badge fade-up delay-1">v0.21-BETA // CODENAME: XEN</span>
+            <h1 class="fade-up delay-2">The Industrial Standard<br>for OpenComputers.</h1>
+            <p class="fade-up delay-3">
+                A microkernel-based operating system featuring the Xen XKA kernel, 
+                AXON driver model, and RKA security subsystem. 
+                Strict isolation. Enterprise architecture.
+            </p>
+            
+            <div class="cta fade-up delay-4">
+                <button id="installBtn" class="btn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Quick Install
+                </button>
+                <button onclick="scrollToSection('deploy', 'Opening Image Generator...')" class="btn btn-outline">Create Image</button>
+            </div>
+
+            <div class="installer-wrapper" id="installerBox">
+                <div class="cmd-box" id="cmdBox" onclick="copyCmd()">
+                    <span class="cmd-text">wget https://raw.githubusercontent.com/nyanity/AxisOS/main/install.lua</span>
+                    <span class="copy-hint" id="copyHint">CLICK TO COPY</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="architecture" class="architecture">
+        <div class="container">
+            <div class="section-header">
+                <h2>System Core</h2>
+            </div>
+            <div class="grid">
+                <div class="card">
+                    <span class="card-icon">KERNEL // RING 0</span>
+                    <h3>Xen XKA</h3>
+                    <p>eXtensible Kernel Architecture. Provides strict memory sandboxing, preemptive scheduling, and hardware abstraction.</p>
+                </div>
+                <div class="card">
+                    <span class="card-icon">DRIVERS // RING 2</span>
+                    <h3>AXON</h3>
+                    <p>Abstract Xen Object Network. A dynamic driver framework using I/O Request Packets (IRP). Features automated watchdog recovery.</p>
+                </div>
+                <div class="card">
+                    <span class="card-icon">MESSAGING</span>
+                    <h3>Synapse</h3>
+                    <p>High-performance IPC protocol. Handles signal routing between user space, VFS, and kernel drivers.</p>
+                </div>
+                <div class="card">
+                    <span class="card-icon">SECURITY</span>
+                    <h3>RKA</h3>
+                    <p>Ringed Kernel Authority. Replaces standard permissions with granular ACLs and RPL checks.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="configurator-section" id="deploy">
+        <div class="container">
+            <div class="section-header" style="border-color: #333;">
+                <h2>System Deployment</h2>
+            </div>
+            
+            <div class="config-controls">
+                <input type="text" id="uuidInput" class="uuid-input" placeholder="Target Disk UUID (e.g. 8d390d50-...)">
+                <button onclick="startBuild()" class="btn">Generate System Image</button>
+            </div>
+
+            <div class="terminal-window">
+                <div class="log-container" id="buildLog">
+                    <div class="log-line"><span class="log-text" style="color:#555">Waiting for input...</span></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>Axis OS is an open-source project for Minecraft OpenComputers.<br>Not affiliated with any real-world OS.</p>
+            <br>
+            <p style="opacity: 0.5;">MIT License &copy; 2025</p>
+        </div>
+    </footer>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        // --- INTERACTIVE GRID CANVAS ---
+        const canvas = document.getElementById('bgCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height;
+        let mouseX = -1000, mouseY = -1000;
+        
+        // Configuration
+        const spacing = 40; // Size of grid squares
+        const pointSize = 1; 
+        const influenceRadius = 250; // How far mouse affects grid
+        const maxDistortion = 15; // Max pixels to push
+        
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        function drawGrid() {
+            // Get current grid color from CSS variables (updates on theme change)
+            const computedStyle = getComputedStyle(document.body);
+            ctx.strokeStyle = computedStyle.getPropertyValue('--grid-color').trim();
+            ctx.lineWidth = 1;
+            ctx.clearRect(0, 0, width, height);
+            
+            const cols = Math.ceil(width / spacing) + 1;
+            const rows = Math.ceil(height / spacing) + 1;
+            
+            // Generate points array
+            const points = [];
+            for(let y = 0; y < rows; y++) {
+                const row = [];
+                for(let x = 0; x < cols; x++) {
+                    const ox = x * spacing;
+                    const oy = y * spacing;
+                    
+                    // Calculate distortion
+                    const dx = mouseX - ox;
+                    const dy = mouseY - oy;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    
+                    let tx = ox;
+                    let ty = oy;
+                    
+                    if (dist < influenceRadius) {
+                        const force = (influenceRadius - dist) / influenceRadius;
+                        // Push away effect
+                        // tx -= (dx / dist) * force * maxDistortion;
+                        // ty -= (dy / dist) * force * maxDistortion;
+                        
+                        // OR: Magnify effect (Pull towards) - usually looks better for "lens"
+                         tx -= (dx / dist) * force * maxDistortion;
+                         ty -= (dy / dist) * force * maxDistortion;
+                    }
+                    
+                    row.push({x: tx, y: ty});
+                }
+                points.push(row);
+            }
+            
+            ctx.beginPath();
+            
+            // Draw horizontal lines
+            for(let y = 0; y < rows; y++) {
+                for(let x = 0; x < cols - 1; x++) {
+                    ctx.moveTo(points[y][x].x, points[y][x].y);
+                    ctx.lineTo(points[y][x+1].x, points[y][x+1].y);
+                }
+            }
+            
+            // Draw vertical lines
+            for(let x = 0; x < cols; x++) {
+                for(let y = 0; y < rows - 1; y++) {
+                    ctx.moveTo(points[y][x].x, points[y][x].y);
+                    ctx.lineTo(points[y+1][x].x, points[y+1][x].y);
+                }
+            }
+            
+            ctx.stroke();
+            requestAnimationFrame(drawGrid);
+        }
+
+        drawGrid();
+
+
+        // --- AUDIO SYSTEM ---
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+
+        function playBeep() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(800, audioCtx.currentTime); 
+            oscillator.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+            gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime); 
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.15);
+        }
+
+        // --- THEME ENGINE ---
+        function setTheme(themeName) {
+            document.body.setAttribute('data-theme', themeName);
+            localStorage.setItem('axis-theme', themeName);
+            if (themeName === 'award') showToast("AWARD MODULAR BIOS v6.00PG", "success");
+            else showToast(`Theme changed to ${themeName.toUpperCase()}`, "info");
+        }
+        const savedTheme = localStorage.getItem('axis-theme');
+        if (savedTheme) { setTheme(savedTheme); document.getElementById('themeSelector').value = savedTheme; }
+
+        // --- INSTALLER LOGIC ---
+        const installBtn = document.getElementById('installBtn');
+        const installerBox = document.getElementById('installerBox');
+        const cmdBox = document.getElementById('cmdBox');
+        const copyHint = document.getElementById('copyHint');
+        const cmdText = "wget https://raw.githubusercontent.com/nyanity/AxisOS/main/install.lua";
+        installBtn.addEventListener('click', () => { installerBox.classList.toggle('open'); });
+        function copyCmd() {
+            navigator.clipboard.writeText(cmdText).then(() => {
+                playBeep();
+                cmdBox.classList.add('copied');
+                copyHint.innerText = "COPIED!";
+                showToast("Installer command copied", "success");
+                setTimeout(() => { cmdBox.classList.remove('copied'); copyHint.innerText = "CLICK TO COPY"; }, 2000);
+            });
+        }
+
+        // --- DEPLOYMENT BUILDER ---
+        const repoBase = "https://raw.githubusercontent.com/Axis-OC/axis-os/main/src/kernel";
+        const biosUrl = "https://raw.githubusercontent.com/Axis-OC/axis-os/main/src/bios/boot.lua";
+        const fileManifest = [
+            "kernel.lua", "bin/init.lua", "bin/sh.lua", "lib/filesystem.lua", "lib/pipeline_manager.lua", "lib/syscall.lua",
+            "drivers/tty.sys.lua", "drivers/keyboard.sys.lua", "drivers/gpu.sys.lua", "drivers/screen.sys.lua", "drivers/ringfs.sys.lua",
+            "system/dkms.lua", "system/driverdispatch.lua", "system/lib/dk/shared_structs.lua", "system/lib/dk/kmd_api.lua",
+            "sys/security/dkms_sec.lua", "etc/perms.lua", "etc/sys.cfg"
+        ];
+        function log(msg, type="info", spin=false) {
+            const container = document.getElementById('buildLog');
+            const div = document.createElement('div');
+            div.className = 'log-line';
+            let icon = '';
+            if(spin) icon = '<span class="spinner">⟳</span>';
+            else if(type === 'success') icon = '<span style="color:var(--success-color)">✓</span>';
+            else if(type === 'error') icon = '<span style="color:var(--error-color)">✗</span>';
+            else icon = '<span style="color:var(--accent-color)">➜</span>';
+            div.innerHTML = `<div class="log-icon">${icon}</div><div class="log-text">${msg}</div>`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+            while(container.children.length > 8) container.removeChild(container.firstChild);
+            return div;
+        }
+        async function startBuild() {
+            const uuid = document.getElementById('uuidInput').value.trim();
+            const logContainer = document.getElementById('buildLog');
+            logContainer.innerHTML = ''; 
+            if(!uuid || uuid.length < 5) { log("Invalid UUID.", "error"); showToast("Invalid UUID", "error"); return; }
+            playBeep();
+            const zip = new JSZip();
+            log("Generating fstab for " + uuid.substring(0,8) + "...", "info");
+            const fstabContent = `return { { uuid = "${uuid}", path = "/", mount = "/", type = "rootfs", options = "rw", }, { uuid = "${uuid}", path = "/home", mount = "/home", type = "homefs", options = "rw,size=3000", }, { uuid = "${uuid}", path = "/swapfile", mount = "none", type = "swap", options = "size=3000", }, { uuid = "${uuid}", path = "/log", mount = "/var/log", type = "ringfs", options = "rw,size=3000", }, { uuid = "virtual", path = "/dev/ringlog", mount = "/var/log/syslog", type = "ringfs", options = "rw,size=8192" }, }`;
+            zip.file("etc/fstab.lua", fstabContent);
+            await new Promise(r => setTimeout(r, 600));
+            log("Configuration generated.", "success");
+            for (const file of fileManifest) {
+                const logEl = log(`Downloading ${file}...`, "info", true);
+                try {
+                    const response = await fetch(`${repoBase}/${file}`);
+                    if(!response.ok) throw new Error(response.status);
+                    const text = await response.text();
+                    zip.file(file, text);
+                    logEl.innerHTML = `<div class="log-icon"><span style="color:var(--success-color)">✓</span></div><div class="log-text">Downloaded ${file}</div>`;
+                } catch (e) {
+                    logEl.innerHTML = `<div class="log-icon"><span style="color:var(--error-color)">✗</span></div><div class="log-text">Failed ${file} (CORS?)</div>`;
+                    console.warn(e);
+                }
+                await new Promise(r => setTimeout(r, 100));
+            }
+            log("Compressing image...", "info", true);
+            zip.generateAsync({type:"blob"}).then(function(content) {
+                log("Image created successfully.", "success");
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(content);
+                link.download = "AxisOS_Install.zip";
+                link.click();
+                showToast("Download started!", "success");
+                setTimeout(() => {
+                    log("Don't forget boot.lua (EEPROM)!", "info");
+                    const eepromLink = document.createElement('a');
+                    eepromLink.href = biosUrl;
+                    eepromLink.target = "_blank";
+                    eepromLink.innerText = ">> Download EEPROM <<";
+                    eepromLink.style.color = "var(--accent-color)";
+                    const div = document.createElement('div');
+                    div.className = 'log-line';
+                    div.style.marginTop = '10px';
+                    div.appendChild(eepromLink);
+                    logContainer.appendChild(div);
+                }, 1000);
+            });
+        }
+
+        // --- TOASTS ---
+        function showToast(message, type = "info") {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            let icon = type === 'success' ? '✓' : type === 'error' ? '!' : 'i';
+            toast.innerHTML = `<span class="toast-icon">${icon}</span> ${message}`;
+            container.appendChild(toast);
+            setTimeout(() => { toast.style.animation = 'fadeOut 0.4s forwards'; setTimeout(() => toast.remove(), 400); }, 3000);
+        }
+        function scrollToSection(id, msg) { showToast(msg || "Navigating...", "info"); document.getElementById(id).scrollIntoView(); }
+    </script>
+</body>
+</html>

@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Axis OS | Documentation</title>
+    
+    <!-- Markdown & Highlighting -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-lua.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;700&family=VT323&display=swap" rel="stylesheet">
+    
+    <style>
+:root {
+            --bg-color: #050505;
+            --sidebar-bg: rgba(10, 10, 10, 0.6);
+            --border-color: #222;
+            --text-primary: #e0e0e0;
+            --text-secondary: #888888;
+            --accent-color: #00bcd4;
+            --accent-dim: rgba(0, 188, 212, 0.1);
+            --code-bg: #0a0a0a;
+            --sb-track: #0a0a0a;
+            --sb-thumb: #333;
+            --sb-thumb-hover: #00bcd4;
+            --header-height: 60px;
+            --sidebar-width: 300px;
+            --toc-width: 240px;
+            --font-mono: 'JetBrains Mono', monospace;
+            --font-sans: 'Inter', sans-serif;
+        }
+
+        /* Theme Overrides */
+        [data-theme="sunset"] { --bg-color: #120b18; --sidebar-bg: rgba(26, 15, 36, 0.6); --border-color: #3d2a4a; --accent-color: #ff9e42; --code-bg: #1a0f24; --sb-track: #1a0f24; --sb-thumb: #5c3a70; --sb-thumb-hover: #ff9e42; }
+        [data-theme="crimson"] { --bg-color: #080202; --sidebar-bg: rgba(17, 5, 5, 0.6); --border-color: #331111; --text-primary: #fff; --accent-color: #ff3333; --code-bg: #110505; --sb-track: #110505; --sb-thumb: #441111; --sb-thumb-hover: #ff3333; }
+        [data-theme="mint"] { --bg-color: #020805; --sidebar-bg: rgba(5, 20, 12, 0.6); --border-color: #11291f; --accent-color: #00ff9d; --code-bg: #05140c; --sb-track: #05140c; --sb-thumb: #11291f; --sb-thumb-hover: #00ff9d; }
+        [data-theme="award"] { --bg-color: #0000AA; --sidebar-bg: #0000AA; --border-color: #FFFFFF; --text-primary: #FFFFFF; --text-secondary: #CCCCCC; --accent-color: #FFFF55; --code-bg: #000000; --font-sans: 'VT323', monospace; --font-mono: 'VT323', monospace; --sb-track: #0000AA; --sb-thumb: #FFFFFF; --sb-thumb-hover: #FFFF55; }
+
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--sb-track); }
+        ::-webkit-scrollbar-thumb { background: var(--sb-thumb); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--sb-thumb-hover); }
+        ::-webkit-scrollbar-corner { background: var(--sb-track); }
+        * { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) var(--sb-track); }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            line-height: 1.6;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            transition: background 0.6s;
+        }
+
+        /* Header */
+        header {
+            height: var(--header-height); background: var(--sidebar-bg); backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border-color); display: flex; align-items: center;
+            justify-content: space-between; padding: 0 1.5rem; flex-shrink: 0; z-index: 20;
+        }
+        .header-left { display: flex; align-items: center; gap: 1rem; }
+        .toggle-btn {
+            background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary);
+            padding: 6px; cursor: pointer; border-radius: 2px; display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s;
+        }
+        .toggle-btn:hover { color: var(--text-primary); border-color: var(--text-primary); }
+        .logo { font-family: var(--font-mono); font-weight: 700; font-size: 1rem; color: var(--text-primary); text-decoration: none; letter-spacing: -0.5px; }
+        .logo span { color: var(--accent-color); }
+        .logo .bread { color: var(--text-secondary); font-weight: normal; margin-left: 8px; }
+        .theme-select {
+            background: rgba(0,0,0,0.2); color: var(--text-secondary); border: 1px solid var(--border-color);
+            padding: 4px 8px; font-family: var(--font-mono); font-size: 0.75rem; outline: none; cursor: pointer;
+            border-radius: 2px;
+        }
+        .theme-select:hover { border-color: var(--accent-color); color: var(--text-primary); }
+        [data-theme="award"] .theme-select { border: 1px solid white; background: #000088; color: white; }
+
+        /* Layout */
+        .main-layout { display: flex; flex: 1; overflow: hidden; position: relative; }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width); background: var(--sidebar-bg); backdrop-filter: blur(15px);
+            border-right: 1px solid var(--border-color); overflow-y: auto;
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); display: flex;
+            flex-direction: column; flex-shrink: 0;
+        }
+        .sidebar.collapsed { transform: translateX(-100%); width: 0; border: none; }
+
+        /* Sidebar Footer (XEN Logo) */
+        .sidebar-footer {
+            margin-top: auto; padding: 1.5rem; border-top: 1px solid var(--border-color);
+            display: flex; align-items: center; gap: 12px; background: rgba(0,0,0,0.2);
+            opacity: 1; transition: opacity 0.2s;
+        }
+        .sidebar.collapsed .sidebar-footer { opacity: 0; pointer-events: none; }
+        .xen-logo-wrapper { width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; color: var(--text-primary); }
+        .xen-svg { width: 100%; height: 100%; stroke: currentColor; stroke-width: 1.5; fill: none; stroke-linecap: round; stroke-linejoin: round; transition: stroke 0.3s; }
+        [data-theme="award"] .xen-svg { stroke: white; stroke-width: 2; }
+        .xen-brand { font-family: var(--font-mono); font-weight: 700; font-size: 1.1rem; color: var(--text-primary); letter-spacing: -0.5px; line-height: 1; display: flex; align-items: center; gap: 6px; }
+        .xen-plus { color: var(--text-secondary); font-weight: 400; font-size: 0.9em; }
+        .xen-dot { color: var(--accent-color); }
+
+        /* Search Box */
+        .sidebar-search { padding: 1.5rem 1.5rem 0.5rem; position: sticky; top: 0; z-index: 2; background: var(--sidebar-bg); }
+        .search-input {
+            width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color);
+            color: var(--text-primary); padding: 0.5rem; font-family: var(--font-mono); font-size: 0.8rem;
+            border-radius: 2px; outline: none; transition: border 0.2s;
+        }
+        .search-input:focus { border-color: var(--accent-color); }
+        [data-theme="award"] .search-input { background: #0000AA; border: 1px solid white; color: yellow; }
+
+        /* Accordion Groups */
+        .nav-group { border-bottom: 1px solid transparent; }
+        .nav-group-header {
+            padding: 1rem 1.5rem; font-size: 0.75rem; text-transform: uppercase; color: var(--text-secondary);
+            letter-spacing: 1.5px; font-family: var(--font-mono); font-weight: 600; cursor: pointer;
+            display: flex; justify-content: space-between; align-items: center; transition: all 0.2s;
+        }
+        .nav-group-header:hover { color: var(--text-primary); background: rgba(255,255,255,0.02); }
+        .nav-group-header.open { color: var(--accent-color); }
+        .nav-chevron { transition: transform 0.3s ease; font-size: 0.8em; }
+        .nav-group-header.open .nav-chevron { transform: rotate(180deg); }
+        
+        .nav-group-content { max-height: 0; overflow: hidden; transition: max-height 0.4s cubic-bezier(0.25, 1, 0.5, 1); }
+
+        /* Nav Items (Files) */
+        .nav-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 0.5rem 1.5rem 0.5rem 2rem; color: var(--text-primary); text-decoration: none; font-size: 0.9rem;
+            border-left: 2px solid transparent; opacity: 0.7; cursor: pointer; transition: all 0.2s;
+        }
+        .nav-item:hover { opacity: 1; background: rgba(255,255,255,0.02); }
+        .nav-item.active { opacity: 1; color: var(--accent-color); background: var(--accent-dim); border-left-color: var(--accent-color); font-weight: 500; }
+        .nav-item.hidden { display: none !important; }
+
+        /* Nav Sub-Items (H2/H3 in Sidebar) */
+        .nav-subgroup {
+            display: block; 
+            border-left: 1px solid var(--border-color);
+            margin-left: 2rem;
+            margin-bottom: 0.5rem;
+            padding-left: 0.5rem;
+        }
+        .nav-subitem {
+            display: block; 
+            padding: 0.3rem 0 0.3rem 1rem; 
+            font-size: 0.8rem; 
+            color: var(--text-secondary); 
+            text-decoration: none; 
+            transition: color 0.2s;
+            border-left: 1px solid transparent;
+            cursor: pointer;
+        }
+        .nav-subitem:hover { color: var(--text-primary); }
+        .nav-subitem.active { color: var(--accent-color); border-left-color: var(--accent-color); }
+
+        /* Content Area */
+        .content-area { flex: 1; overflow-y: auto; padding: 3rem 4rem; scroll-behavior: smooth; position: relative; }
+
+        /* Right TOC */
+        .toc-sidebar { width: var(--toc-width); padding: 3rem 1.5rem; overflow-y: auto; border-left: 1px solid var(--border-color); background: var(--sidebar-bg); display: none; flex-shrink: 0; }
+        .toc-title { font-size: 0.7rem; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 1px; margin-bottom: 1rem; font-family: var(--font-mono); font-weight: 600; }
+        .toc-link { display: block; color: var(--text-secondary); text-decoration: none; font-size: 0.85rem; margin-bottom: 0.6rem; line-height: 1.3; transition: color 0.2s; border-left: 1px solid transparent; padding-left: 10px; }
+        .toc-link:hover { color: var(--text-primary); }
+        .toc-link.active { color: var(--accent-color); border-left-color: var(--accent-color); }
+        .toc-level-3 { padding-left: 25px; font-size: 0.8rem; }
+
+        /* Markdown */
+        .markdown-body { max-width: 800px; margin: 0 auto; padding-bottom: 5rem; opacity: 1; transition: opacity 0.2s ease-out; }
+        .markdown-body.fade-out { opacity: 0; }
+        .markdown-body h1 { font-size: 2.5rem; margin-bottom: 1.5rem; font-weight: 700; letter-spacing: -1px; line-height: 1.2; color: var(--text-primary); position: relative;}
+        .edit-link { font-size: 0.8rem; font-weight: normal; margin-left: 1rem; opacity: 0.5; color: var(--accent-color); border: none !important; font-family: var(--font-mono); }
+        .edit-link:hover { opacity: 1; text-decoration: underline; background: none !important; }
+        .markdown-body h2 { font-size: 1.75rem; margin-top: 3rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color); color: var(--text-primary); font-weight: 600; }
+        .markdown-body h2 code { font-size: 0.8em; color: var(--accent-color); background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); }
+        .markdown-body h3 { font-size: 1.25rem; margin-top: 2rem; margin-bottom: 0.8rem; color: var(--accent-color); font-family: var(--font-mono); font-weight: 600; }
+        .markdown-body h3 code { font-size: 0.9em; color: inherit; background: rgba(0,0,0,0.3); }
+        .markdown-body p { margin-bottom: 1.2rem; color: #ccc; font-size: 1rem; line-height: 1.7; }
+        .markdown-body ul, .markdown-body ol { margin-bottom: 1.2rem; padding-left: 1.5rem; color: #ccc; }
+        .markdown-body li { margin-bottom: 0.4rem; }
+        .markdown-body a { color: var(--accent-color); text-decoration: none; border-bottom: 1px dotted var(--accent-color); transition: all 0.2s; }
+        .markdown-body a:hover { background: var(--accent-dim); }
+        .markdown-body code { font-family: var(--font-mono); background: rgba(255,255,255,0.08); padding: 0.2rem 0.4rem; border-radius: 2px; font-size: 0.85em; color: var(--text-primary); }
+        
+        .code-wrapper { position: relative; margin: 1.5rem 0; }
+        .markdown-body pre { background: var(--code-bg); padding: 1.5rem; border-radius: 2px; overflow-x: auto; border: 1px solid var(--border-color); margin: 0; }
+        .markdown-body pre::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: var(--border-color); }
+        .copy-btn { position: absolute; top: 10px; right: 10px; background: rgba(255,255,255,0.1); border: 1px solid var(--border-color); color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.7rem; padding: 4px 8px; cursor: pointer; border-radius: 2px; opacity: 0; transition: all 0.2s; }
+        .code-wrapper:hover .copy-btn { opacity: 1; }
+        .copy-btn:hover { background: var(--accent-color); color: #000; border-color: var(--accent-color); }
+
+        .markdown-body blockquote { border-left: 3px solid var(--accent-color); background: var(--accent-dim); padding: 1rem 1.5rem; margin: 1.5rem 0; color: var(--text-primary); }
+        .markdown-body table { width: 100%; border-collapse: collapse; margin: 2rem 0; font-size: 0.9rem; border: 1px solid var(--border-color); }
+        .markdown-body th, .markdown-body td { border: 1px solid var(--border-color); padding: 0.8rem 1rem; text-align: left; }
+        .markdown-body th { background: rgba(255,255,255,0.03); color: var(--accent-color); font-family: var(--font-mono); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px; }
+
+        /* Footer */
+        .doc-footer { margin-top: 4rem; padding-top: 2rem; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; gap: 1rem; }
+        .nav-card { flex: 1; padding: 1rem; border: 1px solid var(--border-color); border-radius: 2px; text-decoration: none; transition: all 0.2s; background: rgba(255,255,255,0.01); }
+        .nav-card:hover { border-color: var(--accent-color); background: var(--accent-dim); }
+        .nav-card-label { display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem; font-family: var(--font-mono); }
+        .nav-card-title { display: block; font-size: 1rem; color: var(--text-primary); font-weight: 600; }
+        .nav-card.empty { visibility: hidden; }
+
+        .loading { text-align: center; padding: 5rem 0; color: var(--text-secondary); font-family: var(--font-mono); }
+        .spinner { display: inline-block; animation: spin 1s linear infinite; color: var(--accent-color); margin-bottom: 1rem; font-size: 2rem; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        @media (min-width: 1200px) { .toc-sidebar { display: block; } }
+        @media (max-width: 1199px) { .content-area { padding: 2rem; } }
+        @media (max-width: 768px) {
+            .sidebar { position: absolute; height: calc(100vh - 60px); z-index: 50; transform: translateX(-100%); width: 80%; border-right: 1px solid var(--border-color); background: var(--bg-color); }
+            .sidebar.open { transform: translateX(0); box-shadow: 50px 0 100px rgba(0,0,0,0.5); }
+            .content-area { padding: 1.5rem; }
+        }
+         .sidebar-footer {
+            margin-top: auto;
+            padding: 1.5rem;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(0,0,0,0.2);
+            opacity: 1;
+            transition: opacity 0.2s;
+        }
+
+        .sidebar.collapsed .sidebar-footer {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .xen-logo-wrapper {
+            width: 42px;
+            height: 42px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-primary); /* Logo takes text color */
+        }
+
+        /* The SVG itself */
+        .xen-svg {
+            width: 100%;
+            height: 100%;
+            stroke: currentColor;
+            stroke-width: 1.5;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            transition: stroke 0.3s;
+        }
+
+        /* Theme adaption */
+        [data-theme="award"] .xen-svg { stroke: white; stroke-width: 2; }
+
+        .xen-brand {
+            font-family: var(--font-mono);
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: var(--text-primary);
+            letter-spacing: -0.5px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .xen-plus { color: var(--text-secondary); font-weight: 400; font-size: 0.9em; }
+        .xen-dot { color: var(--accent-color); }
+
+        /* Award BIOS tweak */
+        [data-theme="award"] .xen-logo-img { filter: grayscale(100%) invert(0%) contrast(200%); mix-blend-mode: normal; border: 1px solid white; }
+        [data-theme="award"] .xen-logo-wrapper { mix-blend-mode: normal; }
+    </style>
+</head>
+<body data-theme="xen">
+
+    <header>
+        <div class="header-left">
+            <button class="toggle-btn" onclick="toggleSidebar()">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+            </button>
+            <a href="index.html" class="logo">
+                AXIS<span>OS</span> <span class="bread">/ DOCS</span>
+            </a>
+        </div>
+        
+        <select id="themeSelector" class="theme-select" onchange="setTheme(this.value)">
+            <option value="xen">XEN</option>
+            <option value="sunset">SUNSET</option>
+            <option value="crimson">CRIMSON</option>
+            <option value="mint">MINT</option>
+            <option value="award">AWARD</option>
+        </select>
+    </header>
+
+    
+    <div class="main-layout">
+        <nav class="sidebar" id="sidebar">
+            <div class="sidebar-search">
+                <input type="text" id="searchInput" class="search-input" placeholder="Search docs..." onkeyup="filterMenu()">
+            </div>
+            
+            <!-- Content injected by JS goes here -->
+            <div id="sidebarContent" style="flex: 1;"></div>
+            <div class="sidebar-footer">
+                <div class="xen-logo-wrapper">
+                    <svg class="xen-svg" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+                        <!-- Styles for this SVG -->
+                        <defs>
+                            <style>
+                                .xen-line { fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; }
+                                .xen-node { fill: var(--sidebar-bg); stroke: currentColor; stroke-width: 3; }
+                                .xen-dot { fill: currentColor; stroke: none; }
+                            </style>
+                        </defs>
+
+                        <!-- Connecting Lines (The X) -->
+                        <!-- Shortened slightly so they don't poke through transparent circles if fill fails -->
+                        <line x1="14" y1="14" x2="50" y2="50" class="xen-line" />
+                        <line x1="50" y1="14" x2="14" y2="50" class="xen-line" />
+
+                        <!-- Left Dashed Arc -->
+                        <path d="M 12 12 Q -8 32 12 52" class="xen-line" stroke-dasharray="6 4" opacity="0.8" />
+
+                        <!-- Right Solid Curve (Hanging wire) -->
+                        <path d="M 52 12 Q 42 32 34 30" class="xen-line" opacity="0.8" />
+
+                        <!-- Center -->
+                        <circle cx="32" cy="32" r="7" class="xen-node" />
+                        <circle cx="32" cy="32" r="2.5" class="xen-dot" />
+
+                        <!-- Corner Nodes -->
+                        <circle cx="12" cy="12" r="3.5" class="xen-node" />
+                        <circle cx="52" cy="12" r="3.5" class="xen-node" />
+                        <circle cx="12" cy="52" r="3.5" class="xen-node" />
+                        <circle cx="52" cy="52" r="3.5" class="xen-node" />
+                    </svg>
+                </div>
+                <div class="xen-brand">
+                    <span class="xen-plus">+</span> XEN<span class="xen-dot">.</span>
+                </div>
+            </div>
+        </nav>
+
+        <main class="content-area" id="mainScroll">
+            <div id="content" class="markdown-body"></div>
+            <div id="docFooter" class="doc-footer"></div>
+        </main>
+
+        <aside class="toc-sidebar" id="tocSidebar">
+            <div class="toc-title">On this page</div>
+            <div id="tocContent"></div>
+        </aside>
+    </div>
+
+
+        
+<script>
+        const REPO_BASE = "https://raw.githubusercontent.com/Axis-OC/axis-os/main/doc";
+        const GITHUB_LINK_BASE = "https://github.com/Axis-OC/axis-os/blob/main/doc/";
+        
+        const MENU = [
+            {
+                title: "Core Concepts",
+                items: [
+                    { name: "Architectural Overview", file: "01_Introduction/01_Architectural_Overview.md" },
+                    { name: "Design Philosophies", file: "01_Introduction/02_Core_Philosophies.md" }
+                ]
+            },
+            {
+                title: "The Kernel",
+                items: [
+                    { name: "XKA Architecture", file: "02_Kernel/01_Kernel_Architecture.md" },
+                    { name: "Boot Sequence", file: "02_Kernel/02_Boot_Sequence.md" },
+                    { name: "Process Model", file: "02_Kernel/03_Process_Model.md" }
+                ]
+            },
+            {
+                title: "System Interfaces",
+                items: [
+                    { name: "System Calls", file: "03_System_Calls/README.MD" },
+                    { name: "AXON Driver Model", file: "04_Driver_Model_ADM/README.md" },
+                    { name: "Shared Structures", file: "04_Driver_Model_ADM/00_Shared_Structures.md" },
+                    { name: "KMDF Reference", file: "04_Driver_Model_ADM/01_KMDF_Reference.md" },
+                    { name: "UMDF Reference", file: "04_Driver_Model_ADM/02_UMDF_Reference.md" },
+                    { name: "KCMD Reference", file: "04_Driver_Model_ADM/03_KCMD_Reference.md" }
+                ]
+            },
+            {
+                title: "Security",
+                items: [
+                    { name: "RKA Model", file: "07_Security/01_Ring_Model.md" },
+                    { name: "Sandboxing", file: "07_Security/02_Process_Sandboxing.md" }
+                ]
+            }
+        ];
+
+        // --- SAFE SLUG GENERATION ---
+        function safeSlug(text) {
+            return String(text)
+                .toLowerCase()
+                .replace(/`/g, '') // Remove code ticks
+                .replace(/\*\*/g, '') // Remove bold
+                .replace(/[^\w]+/g, '-') // Slugify
+                .replace(/^-+|-+$/g, '');
+        }
+
+        const FLAT_MENU = MENU.flatMap(g => g.items);
+
+        function init() {
+            const savedTheme = localStorage.getItem('axis-theme');
+            if (savedTheme) {
+                setTheme(savedTheme);
+                document.getElementById('themeSelector').value = savedTheme;
+            }
+
+            const params = new URLSearchParams(window.location.search);
+            const page = params.get('page');
+            if (page) loadPage(page);
+            else loadPage(MENU[0].items[0].file);
+        }
+
+        // Updated RenderSidebar: Accepts subHeaders correctly
+        function renderSidebar(activeFile = null, subHeaders = []) {
+            const sb = document.getElementById('sidebarContent');
+            sb.innerHTML = '';
+
+            MENU.forEach((grp, grpIndex) => {
+                const groupDiv = document.createElement('div');
+                groupDiv.className = 'nav-group';
+
+                const header = document.createElement('div');
+                header.className = 'nav-group-header';
+                header.innerHTML = `${grp.title} <span class="nav-chevron">▼</span>`;
+                
+                const content = document.createElement('div');
+                content.className = 'nav-group-content';
+                
+                const containsActive = grp.items.some(i => i.file === activeFile);
+                
+                if (containsActive) {
+                    header.classList.add('open');
+                }
+
+                header.onclick = () => toggleGroup(header, content);
+
+                grp.items.forEach(itm => {
+                    // Item Container
+                    const wrapper = document.createElement('div');
+                    
+                    // The file link itself
+                    const a = document.createElement('div');
+                    a.className = 'nav-item';
+                    if (itm.file === activeFile) a.classList.add('active');
+                    a.innerText = itm.name;
+                    a.dataset.search = itm.name.toLowerCase();
+                    a.onclick = () => {
+                        if (itm.file !== activeFile) loadPage(itm.file);
+                    };
+                    wrapper.appendChild(a);
+
+                    // --- RESTORED SUBHEADER LOGIC ---
+                    if (itm.file === activeFile && subHeaders.length > 0) {
+                        const subDiv = document.createElement('div');
+                        subDiv.className = 'nav-subgroup';
+                        
+                        subHeaders.forEach(head => {
+                            const subA = document.createElement('a');
+                            subA.className = 'nav-subitem';
+                            subA.href = '#' + head.id;
+                            // Strip Markdown
+                            subA.innerText = head.text.replace(/`/g, '').replace(/\*\*/g, '');
+                            subA.onclick = (e) => {
+                                e.preventDefault();
+                                document.getElementById(head.id).scrollIntoView({behavior:'smooth'});
+                            };
+                            subDiv.appendChild(subA);
+                        });
+                        wrapper.appendChild(subDiv);
+                    }
+                    // -------------------------------
+
+                    content.appendChild(wrapper);
+                });
+
+                groupDiv.appendChild(header);
+                groupDiv.appendChild(content);
+                sb.appendChild(groupDiv);
+
+                if(containsActive) {
+                    // Force expand active group
+                    content.style.maxHeight = "2000px"; 
+                }
+            });
+        }
+
+        function filterMenu() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const items = document.querySelectorAll('.nav-item');
+            const groups = document.querySelectorAll('.nav-group');
+
+            items.forEach(item => {
+                const text = item.dataset.search;
+                if (text && text.includes(query)) {
+                    item.classList.remove('hidden');
+                } else {
+                    item.classList.add('hidden');
+                }
+            });
+
+            groups.forEach(group => {
+                const content = group.querySelector('.nav-group-content');
+                const header = group.querySelector('.nav-group-header');
+                const visibleItems = content.querySelectorAll('.nav-item:not(.hidden)');
+                
+                if (visibleItems.length > 0 || query === '') {
+                    group.style.display = 'block';
+                    if (query !== '') {
+                        header.classList.add('open');
+                        content.style.maxHeight = "2000px";
+                    }
+                } else {
+                    group.style.display = 'none';
+                }
+            });
+        }
+
+        function toggleGroup(header, content) {
+            const isOpen = header.classList.contains('open');
+            // Close others
+            document.querySelectorAll('.nav-group-header').forEach(h => {
+                if(h !== header) {
+                    h.classList.remove('open');
+                    h.nextElementSibling.style.maxHeight = null;
+                }
+            });
+            if (isOpen) {
+                header.classList.remove('open');
+                content.style.maxHeight = null;
+            } else {
+                header.classList.add('open');
+                content.style.maxHeight = content.scrollHeight + "px";
+            }
+        }
+
+        async function loadPage(file) {
+            const contentDiv = document.getElementById('content');
+            
+            contentDiv.classList.add('fade-out');
+            await new Promise(r => setTimeout(r, 200));
+
+            const newUrl = window.location.pathname + '?page=' + encodeURIComponent(file);
+            window.history.pushState({path: newUrl}, '', newUrl);
+
+            try {
+                const res = await fetch(`${REPO_BASE}/${file}`);
+                if (!res.ok) throw new Error(`Status ${res.status}`);
+                const text = await res.text();
+
+                const tokens = marked.lexer(text);
+                const headers = [];
+                tokens.forEach(t => {
+                    if (t.type === 'heading' && (t.depth === 2 || t.depth === 3)) {
+                        const rawText = t.text; 
+                        const slug = safeSlug(rawText);
+                        headers.push({ id: slug, text: rawText, level: t.depth });
+                    }
+                });
+
+                const renderer = new marked.Renderer();
+                renderer.heading = function(token) {
+                    const text = token.text || token; 
+                    const depth = token.depth || arguments[1];
+                    const parsedContent = this.parser.parseInline(token.tokens);
+                    
+                    if (depth === 1) {
+                        return `<h1>${parsedContent}<a href="${GITHUB_LINK_BASE}${file}" target="_blank" class="edit-link">Edit on GitHub</a></h1>`;
+                    }
+
+                    const slug = safeSlug(text.replace(/<[^>]*>?/gm, '')); 
+                    return `<h${depth} id="${slug}">${parsedContent}</h${depth}>`;
+                };
+
+                const html = marked.parser(tokens, { renderer: renderer });
+                contentDiv.innerHTML = html;
+                
+                document.querySelectorAll('pre').forEach(pre => {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'code-wrapper';
+                    pre.parentNode.insertBefore(wrapper, pre);
+                    wrapper.appendChild(pre);
+                    
+                    const btn = document.createElement('button');
+                    btn.className = 'copy-btn';
+                    btn.innerText = 'Copy';
+                    btn.onclick = () => {
+                        navigator.clipboard.writeText(pre.innerText);
+                        btn.innerText = 'Copied!';
+                        setTimeout(() => btn.innerText = 'Copy', 2000);
+                    };
+                    wrapper.appendChild(btn);
+                });
+
+                Prism.highlightAll();
+                document.getElementById('mainScroll').scrollTop = 0;
+
+                // Pass headers to renderSidebar!
+                renderSidebar(file, headers); 
+                renderRightTOC(headers);
+                renderFooter(file);
+
+            } catch (e) {
+                contentDiv.innerHTML = `<div class="loading"><h2 style="color:var(--error-color)">ERROR</h2><p>${e.message}</p></div>`;
+            } finally {
+                contentDiv.classList.remove('fade-out');
+            }
+        }
+
+        function renderFooter(currentFile) {
+            const container = document.getElementById('docFooter');
+            const currentIndex = FLAT_MENU.findIndex(i => i.file === currentFile);
+            const prev = FLAT_MENU[currentIndex - 1];
+            const next = FLAT_MENU[currentIndex + 1];
+
+            let html = '';
+            if (prev) {
+                html += `<a href="#" onclick="loadPage('${prev.file}'); return false;" class="nav-card">
+                            <span class="nav-card-label">← Previous</span>
+                            <span class="nav-card-title">${prev.name}</span>
+                         </a>`;
+            } else { html += `<div class="nav-card empty"></div>`; }
+
+            if (next) {
+                html += `<a href="#" onclick="loadPage('${next.file}'); return false;" class="nav-card" style="text-align:right">
+                            <span class="nav-card-label">Next →</span>
+                            <span class="nav-card-title">${next.name}</span>
+                         </a>`;
+            } else { html += `<div class="nav-card empty"></div>`; }
+
+            container.innerHTML = html;
+        }
+
+        function renderRightTOC(headers) {
+            const container = document.getElementById('tocContent');
+            container.innerHTML = '';
+            if (headers.length === 0) {
+                container.innerHTML = '<span style="color:#555; font-size:0.8rem;">No subsections</span>';
+                return;
+            }
+            headers.forEach(h => {
+                const a = document.createElement('a');
+                a.className = 'toc-link';
+                if (h.level === 3) a.classList.add('toc-level-3');
+                a.href = '#' + h.id;
+                a.innerText = h.text.replace(/`/g, '').replace(/\*\*/g, '');
+                a.onclick = (e) => {
+                    e.preventDefault();
+                    document.getElementById(h.id).scrollIntoView({behavior:'smooth'});
+                };
+                container.appendChild(a);
+            });
+            setupScrollSpy();
+        }
+
+        function setupScrollSpy() {
+            const observer = new IntersectionObserver(entries => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        document.querySelectorAll('.toc-link').forEach(l => l.classList.remove('active'));
+                        const activeLink = document.querySelector(`.toc-link[href="#${entry.target.id}"]`);
+                        if (activeLink) activeLink.classList.add('active');
+                    }
+                });
+            }, { root: document.getElementById('mainScroll'), threshold: 0.1, rootMargin: "-20px 0px -80% 0px" });
+            document.querySelectorAll('.markdown-body h2, .markdown-body h3').forEach(h => observer.observe(h));
+        }
+
+        function toggleSidebar() {
+            const sb = document.getElementById('sidebar');
+            if (window.innerWidth <= 768) sb.classList.toggle('open');
+            else sb.classList.toggle('collapsed');
+        }
+
+        function setTheme(themeName) {
+            document.body.setAttribute('data-theme', themeName);
+            localStorage.setItem('axis-theme', themeName);
+        }
+
+        init();
+    </script>
+</body>
+</html>
