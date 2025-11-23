@@ -5,8 +5,8 @@ return {
         items = {
             { name = "s.txt", path = "packages/drivers/s.txt", type = "file" },
             { name = "Experimental", type = "tree", items = {
-                { name = "holo.lua", path = "packages/drivers/experimental/s.txt", type = "file" },
-                { name = "tape.lua", path = "packages/drivers/experimental/s.txt", type = "file" }
+                { name = "s.txt", path = "packages/drivers/experimental/s.txt", type = "file" },
+                { name = "s.txt", path = "packages/drivers/experimental/s.txt", type = "file" }
             }},
         }
     },
