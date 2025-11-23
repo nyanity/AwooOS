@@ -40,28 +40,23 @@ local g_nCurrentLine = 0
 local tBootArgs = boot_args or {} 
 
 -- Color constants for the logger
-local C_BG       = 0x000000
-local C_TIMESTAMP= 0x555555 -- Dark Gray for time
-local C_BRACKET  = 0x888888 -- Brackets color
-local C_TEXT     = 0xFFFFFF -- Main message
-local C_DETAIL   = 0x666666 -- Technical details (right side)
+local C_WHITE  = 0xFFFFFF
+local C_GRAY   = 0xAAAAAA
+local C_GREEN  = 0x55FF55
+local C_RED    = 0xFF5555
+local C_YELLOW = 0xFFFF55
+local C_CYAN   = 0x55FFFF
+local C_BLUE   = 0x5555FF
 
-local C_GREEN    = 0x55FF55 -- OK
-local C_RED      = 0xFF5555 -- FAIL
-local C_CYAN     = 0x00B6FF -- INFO (Now Cyan/Blue-ish for contrast)
-local C_YELLOW   = 0xFFCC00 -- WARN
-local C_MAGENTA  = 0x9955FF -- DEBUG/DEV (Purple)
-
--- Log levels definition
+-- Log level definitions
 local tLogLevels = {
-  ok    = { text = "  OK  ", color = C_GREEN },
-  fail  = { text = "FAILED", color = C_RED },
-  info  = { text = " INFO ", color = C_CYAN },    -- Changed to Cyan
-  warn  = { text = " WARN ", color = C_YELLOW },
-  dev   = { text = " DEBG ", color = C_MAGENTA }, -- Changed to Magenta
-  none  = { text = "      ", color = C_TEXT },
+  ok    = { text = "[  OK  ]", color = C_GREEN },
+  fail  = { text = "[ FAIL ]", color = C_RED },
+  info  = { text = "[ INFO ]", color = C_CYAN },
+  warn  = { text = "[ WARN ]", color = C_YELLOW },
+  dev   = { text = "[ DEV  ]", color = C_BLUE },
+  none  = { text = "         ", color = C_WHITE }, -- For multi-line messages
 }
-
 
 local tLogLevelsPriority = {
   debug = 0,
@@ -115,85 +110,53 @@ local function __logger_init()
 end
 
 
-
-function kprint(sLevel, sMessage, sDetail)
-  if sDetail ~= nil then sDetail = tostring(sDetail) end
-  
+function kprint(sLevel, ...)
   local nMsgPriority = tLogLevelsPriority[sLevel] or 1
   if nMsgPriority < nMinPriority then return end 
+  -- 1. Prepare the message
+  local tMsgParts = {...}
+  local sMessage = ""
+  for i, v in ipairs(tMsgParts) do
+    sMessage = sMessage .. tostring(v) .. (i < #tMsgParts and " " or "")
+  end
   
-  -- 1. Boot Log (Internal Table)
-  local sFullMsg = string.format("%s %s", sLevel:upper(), tostring(sMessage))
-  if sDetail then sFullMsg = sFullMsg .. " (" .. tostring(sDetail) .. ")" end
-  table.insert(kernel.tBootLog, sFullMsg)
+  -- 2. Add to the internal boot log table
+  local sFullLogMessage = string.format("[%s] %s", sLevel, sMessage)
+  table.insert(kernel.tBootLog, sFullLogMessage)
 
-  -- 2. Screen Rendering
-  if not g_bLogToScreen or not g_oGpu then return end
+  -- 3. If we don't have a GPU, we're done here.
+  if not g_bLogToScreen then return end
+  if not g_oGpu then return end
 
-  -- Scroll Logic
+  -- 4. Handle scrolling
   if g_nCurrentLine >= g_nHeight then
+    -- Copy everything from line 2 to the end, one line up.
     g_oGpu.copy(1, 2, g_nWidth, g_nHeight - 1, 0, -1)
+    -- Clear the last line, which is now a duplicate of the second-to-last.
     g_oGpu.fill(1, g_nHeight, g_nWidth, 1, " ")
   else
     g_nCurrentLine = g_nCurrentLine + 1
   end
   
-  local y = g_nCurrentLine
-  local tLvl = tLogLevels[sLevel] or tLogLevels.none
+  -- 5. Print the formatted line to the screen
+  local tLevelInfo = tLogLevels[sLevel] or tLogLevels.none
+  local nPrintY = g_nCurrentLine
+  local nPrintX = 1
   
-  -- [[ PARSE PID ]] --
-  -- We look for "PID=123" in the detail string.
-  -- If found, we extract it to show in the column, and remove it from detail so it's not duplicated.
-  local sPidDisplay = "   " -- default empty 3 chars
-  if sDetail then
-      local sP = string.match(sDetail, "PID=(%d+)")
-      if sP then
-          sPidDisplay = string.format("%3s", sP) -- Right align, e.g. "  2"
-          -- Clean up the detail string
-          if sDetail == "PID="..sP then 
-              sDetail = nil -- It was ONLY the PID
-          else
-              -- It had other stuff too (e.g. "uuid=... PID=2"), remove just the PID part
-              sDetail = string.gsub(sDetail, " ?PID="..sP, "")
-          end
-      end
-  end
+  -- Timestamp
+  g_oGpu.setForeground(C_GRAY)
+  local sTimestamp = string.format("[%8.4f]", raw_computer.uptime())
+  g_oGpu.set(nPrintX, nPrintY, sTimestamp)
+  nPrintX = nPrintX + #sTimestamp + 1
+  
+  -- Log Level Tag
+  g_oGpu.setForeground(tLevelInfo.color)
+  g_oGpu.set(nPrintX, nPrintY, tLevelInfo.text)
+  nPrintX = nPrintX + #tLevelInfo.text + 1
 
-  -- [[ RENDER COLUMNS ]] --
-  
-  -- Column 1: Timestamp [  0.1234] (Width 10)
-  local sTime = string.format("[%8.4f]", raw_computer.uptime())
-  g_oGpu.setForeground(C_TIMESTAMP)
-  g_oGpu.set(1, y, sTime)
-  
-  -- Column 2: PID (Width 3 + 1 spacer)
-  -- We draw this in dark gray, very subtle.
-  g_oGpu.setForeground(C_DETAIL)
-  g_oGpu.set(12, y, sPidDisplay)
-  
-  -- Column 3: Status Tag [ INFO ] (Starts at 16)
-  g_oGpu.setForeground(C_BRACKET)
-  g_oGpu.set(16, y, "[")
-  g_oGpu.set(23, y, "]")
-  
-  g_oGpu.setForeground(tLvl.color)
-  -- Center text inside brackets
-  local nPad = math.floor((6 - #tLvl.text) / 2)
-  g_oGpu.set(17 + nPad, y, tLvl.text)
-  
-  -- Column 4: Message (Starts at 25)
-  g_oGpu.setForeground(C_TEXT)
-  g_oGpu.set(25, y, tostring(sMessage))
-  
-  -- Extra Detail (Appended)
-  if sDetail and #sDetail > 0 then
-     g_oGpu.setForeground(C_DETAIL)
-     g_oGpu.set(25 + #tostring(sMessage) + 1, y, tostring(sDetail))
-  end
-  
-  -- [[ FIX: RESET COLOR ]] --
-  -- Reset to white so the next print (e.g. shell prompt) isn't gray/green
-  g_oGpu.setForeground(0xFFFFFF)
+  -- Message
+  g_oGpu.setForeground(C_WHITE)
+  g_oGpu.set(nPrintX, nPrintY, sMessage)
 end
 
 -------------------------------------------------
@@ -327,11 +290,13 @@ end
 ------------------------------------------------
 
 __logger_init()
-kprint("info", "AxisOS (XKA v0.3) starting...")
-kprint("info", "Copyright (C) 2025 Axis OS + Xen XKA")
+kprint("info", "AxisOS Xen XKA v0.3 starting...")
+kprint("info", "Copyright (C) 2025 AxisOS")
 kprint("none", "")
-kprint("info", "Initializing memory manager", string.format("%d KB RAM available", math.floor(raw_computer.totalMemory()/1024)))
-kprint("ok", "Initializing IRQL Controller", "Base=PASSIVE_LEVEL")
+
+------------------------------------------------
+-- BOOT MSG
+------------------------------------------------
 
 -- ================================================================
 
@@ -752,11 +717,10 @@ kernel.tSyscallTable["kernel_get_root_fs"] = {
 
 kernel.tSyscallTable["kernel_log"] = {
   func = function(nPid, sMessage)
-    -- [ INFO ] [PM] Ring 1 Started... PID=2
-    kprint("info", tostring(sMessage), "PID="..tostring(nPid))
+    kprint("info", tostring(sMessage))
     return true
   end,
-  allowed_rings = {0, 1, 2, 3} 
+  allowed_rings = {0, 1, 2, 3} -- let the kernel, pipeline manager, AND DRIVERS write to the log
 }
 
 kernel.tSyscallTable["kernel_get_boot_log"] = {
@@ -1073,17 +1037,17 @@ if tRootEntry.type ~= "rootfs" then
   kprint("fail", "fstab[1] is not of type 'rootfs'.")
   kernel.panic("Invalid fstab configuration.")
 end
-
-
 kernel.tVfs.sRootUuid = tRootEntry.uuid
 kernel.tVfs.oRootFs = raw_component.proxy(tRootEntry.uuid)
-kernel.tVfs.tMounts["/"] = { type = "rootfs", proxy = kernel.tVfs.oRootFs, options = tRootEntry.options }
-
-kprint("ok", "Mounted root filesystem", string.format("uuid=%s... mount=/", kernel.tVfs.sRootUuid:sub(1,8)))
+kernel.tVfs.tMounts["/"] = {
+  type = "rootfs",
+  proxy = kernel.tVfs.oRootFs,
+  options = tRootEntry.options,
+}
+kprint("ok", "Mounted root filesystem on", kernel.tVfs.sRootUuid:sub(1,13).."...")
 
 -- 2. Create nPid 0 (Kernel Process)
 -- this process "owns" the kernel and runs the main loop. it's us!
-kprint("info", "Initializing process scheduler")
 local nKernelPid = kernel.nNextPid
 kernel.nNextPid = kernel.nNextPid + 1
 local coKernel = coroutine.running()
@@ -1098,7 +1062,6 @@ g_nCurrentPid = nKernelPid
 -- set the kernel's _G to its own sandbox. more inception.
 _G = tKernelEnv
 kprint("ok", "Kernel process registered as PID", nKernelPid)
-kprint("ok", "Started Kernel Idle Task", "PID=0 Ring=0")
 
 -- 3. Load Ring 1 Pipeline Manager
 kprint("info", "Starting Ring 1 services...")

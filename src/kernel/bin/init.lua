@@ -49,7 +49,7 @@ oFs.write(hStdout, "\f")
 
 while true do
   oFs.write(hStdout, "\nWelcome to AxisOS v0.3\n")
-  oFs.write(hStdout, "Kernel 0.3 on " .. sHostname .. "\n\n")
+  oFs.write(hStdout, "Kernel 0.21 on " .. sHostname .. "\n\n")
   
   oFs.write(hStdout, sHostname .. " login: ")
   oFs.flush(hStdout)

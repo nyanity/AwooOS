@@ -10,11 +10,6 @@ g_tDriverInfo = { sDriverName = "AxisKeyboardStub", sDriverType = tDKStructs.DRI
 
 function DriverEntry(pDriverObject)
   oKMD.DkPrint("Keyboard Stub Driver loaded. TTY is still doing all the work.")
-  
-  -- mandatory irql init.
-  -- keyboards generate interrupts, but we handle them passively here.
-  pDriverObject.nCurrentIrql = tDKStructs.PASSIVE_LEVEL
-  
   return tStatus.STATUS_SUCCESS
 end
 

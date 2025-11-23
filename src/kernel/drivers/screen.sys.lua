@@ -9,11 +9,6 @@ g_tDriverInfo = { sDriverName = "AxisScreenStub", sDriverType = tDKStructs.DRIVE
 
 function DriverEntry(pDriverObject)
   oKMD.DkPrint("Screen Stub Driver loaded. GPU/TTY drivers are in control.")
-  
-  -- mandatory irql init.
-  -- screens are just pixels, they don't have interrupts. passive.
-  pDriverObject.nCurrentIrql = tDKStructs.PASSIVE_LEVEL
-  
   return tStatus.STATUS_SUCCESS
 end
 

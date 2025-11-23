@@ -7,11 +7,6 @@ g_tDriverInfo = { sDriverName = "AxisComputerStub", sDriverType = tDKStructs.DRI
 
 function DriverEntry(pDriverObject)
   oKMD.DkPrint("Computer Stub Driver loaded. Exposes... the computer? Sure.")
-  
-  -- mandatory irql init. 
-  -- computers are basically rocks we tricked into thinking. they are very passive.
-  pDriverObject.nCurrentIrql = tDKStructs.PASSIVE_LEVEL
-  
   return tStatus.STATUS_SUCCESS
 end
 

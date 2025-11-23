@@ -9,28 +9,17 @@ local tStatus = require("errcheck")
 local oDispatch = {}
 
 -- this is the main entry point for all i/o requests from the vfs.
-function oDispatch.DispatchIrp(pIrp, g_tDeviceTree, sExplicitDeviceName)
-  local sTargetName = sExplicitDeviceName or pIrp.sDeviceName
-  local pDeviceObject = g_tDeviceTree[sTargetName]
+function oDispatch.DispatchIrp(pIrp, g_tDeviceTree)
+  local pDeviceObject = g_tDeviceTree[pIrp.sDeviceName]
   
   if not pDeviceObject then
-    syscall("kernel_log", "[DD] Error: No device object for '" .. sTargetName .. "'")
+    syscall("kernel_log", "[DD] Error: No device object for '" .. pIrp.sDeviceName .. "'")
     return tStatus.STATUS_NO_SUCH_DEVICE
   end
   
-  -- FILTER DRIVER SUPPORT:
-  -- climb the ladder. if someone attached a listener to this device,
-  -- we talk to the listener (filter) first.
-  while pDeviceObject.pAttachedDevice do
-     pDeviceObject = pDeviceObject.pAttachedDevice
-  end
-  
-  -- update the irp to point to the actual object handling it
-  pIrp.sDeviceName = pDeviceObject.sDeviceName 
-  
   local pDriverObject = pDeviceObject.pDriverObject
   if not pDriverObject then
-    syscall("kernel_log", "[DD] Error: Device '" .. pDeviceObject.sDeviceName .. "' has no driver object!")
+    syscall("kernel_log", "[DD] Error: Device '" .. pIrp.sDeviceName .. "' has no driver object!")
     return tStatus.STATUS_INVALID_DRIVER_OBJECT
   end
   

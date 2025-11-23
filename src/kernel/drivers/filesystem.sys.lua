@@ -9,8 +9,6 @@ g_tDriverInfo = { sDriverName = "AxisFSStub", sDriverType = tDKStructs.DRIVER_TY
 
 function DriverEntry(pDriverObject)
   oKMD.DkPrint("Filesystem Stub Driver loaded. Ready to mount future devices.")
-  pDriverObject.nCurrentIrql = tDKStructs.PASSIVE_LEVEL
-  
   return tStatus.STATUS_SUCCESS
 end
 

@@ -16,52 +16,7 @@ local nDkmsPid, sDkmsErr = syscall("process_spawn", "/system/dkms.lua", 1)
 if not nDkmsPid then syscall("kernel_panic", "Could not spawn DKMS: " .. tostring(sDkmsErr)) end
 syscall("kernel_log", "[PM] DKMS process started as PID " .. tostring(nDkmsPid))
 
--- [[ OBMANAGER - SECURITY SUBSYSTEM ]] --
--- instead of a simple list of fds, we now have:
--- 1. tGlobalObjectTable: The real resources. Keyed by random UUIDs (SecureHandles).
--- 2. tProcessFdMap: Maps a process's simple integer FD (0, 1, 2) to a SecureHandle.
--- prevents guessing attacks because fd '5' for process A is meaningless for process B.
-
-local vfs_state = { 
-  oRootFs = nil, 
-  -- nNextFd removed. fd allocation is per-process now.
-}
-
-local tGlobalObjectTable = {} -- [sSecureHandle] = { type="file/device", ... }
-local tProcessFdMap = {}      -- [nPid] = { [nFdInt] = sSecureHandle }
-
-local function generate_handle()
-  -- low budget uuid generation
-  local sTemplate = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
-  return string.gsub(sTemplate, "[xy]", function (c)
-      local v = (c == "x") and math.random(0, 0xf) or math.random(8, 0xb)
-      return string.format("%x", v)
-  end)
-end
-
--- ensures a process has a mapping table
-local function get_proc_map(nPid)
-  if not tProcessFdMap[nPid] then tProcessFdMap[nPid] = {} end
-  return tProcessFdMap[nPid]
-end
-
--- finds a free integer fd for the process (like standard posix, lowest available)
-local function alloc_fd(nPid)
-  local tMap = get_proc_map(nPid)
-  local i = 0 -- start from 0 (stdin)
-  while tMap[i] do
-     i = i + 1
-  end
-  return i
-end
-
--- lookup secure handle from integer fd
-local function resolve_fd(nPid, nFd)
-  local tMap = tProcessFdMap[nPid]
-  if not tMap then return nil end
-  return tMap[nFd]
-end
-
+local vfs_state = { oRootFs = nil, nNextFd = 0, tOpenHandles = {} }
 
 syscall("syscall_override", "vfs_open")
 syscall("syscall_override", "vfs_read")
@@ -222,8 +177,6 @@ local function check_access(nPid, sPath, sMode)
 end
 
 function vfs_state.handle_open(nSenderPid, sPath, sMode)
-  local tInternalObj = nil
-
   if string.sub(sPath, 1, 5) == "/dev/" then
     local tDKStructs = require("shared_structs")
     local pIrp = tDKStructs.fNewIrp(tDKStructs.IRP_MJ_CREATE)
@@ -240,39 +193,32 @@ function vfs_state.handle_open(nSenderPid, sPath, sMode)
     local nStatus, vInfo = wait_for_dkms()
     
     if nStatus == 0 then 
+       local nFd = vfs_state.nNextFd
+       vfs_state.nNextFd = vfs_state.nNextFd + 1
+      
        local nDriverPid = (type(vInfo) == "number") and vInfo or nDkmsPid
        
-       tInternalObj = { 
+       vfs_state.tOpenHandles[nFd] = { 
          type = "device", 
          devname = pIrp.sDeviceName,
          driverPid = nDriverPid
        }
+       return true, nFd
     else
        return nil, "Device Open Failed: " .. tostring(nStatus)
     end
-    
-  else
-    -- Regular File
-    if not check_access(nSenderPid, sPath, sMode or "r") then
-       return nil, "Permission denied"
-    end
-    
-    local bOk, hHandle, sReason = syscall("raw_component_invoke", vfs_state.oRootFs.address, "open", sPath, sMode)
-    if not hHandle then return nil, sReason end
-    
-    tInternalObj = { type = "file", handle = hHandle }
+  end
+
+  if not check_access(nSenderPid, sPath, sMode or "r") then
+     return nil, "Permission denied"
   end
   
-  -- [[ HANDLE ALLOCATION ]] --
-  -- 1. Create secure handle
-  local sSecureHandle = generate_handle()
-  tGlobalObjectTable[sSecureHandle] = tInternalObj
+  local bOk, hHandle, sReason = syscall("raw_component_invoke", vfs_state.oRootFs.address, "open", sPath, sMode)
+  if not hHandle then return nil, sReason end
   
-  -- 2. Allocate virtual FD for this process
-  local nFd = alloc_fd(nSenderPid)
-  
-  -- 3. Map Virtual FD -> Secure Handle
-  get_proc_map(nSenderPid)[nFd] = sSecureHandle
+  local nFd = vfs_state.nNextFd
+  vfs_state.nNextFd = vfs_state.nNextFd + 1
+  vfs_state.tOpenHandles[nFd] = { type = "file", handle = hHandle }
   
   return true, nFd
 end
@@ -317,9 +263,7 @@ function vfs_state.handle_chmod(nSenderPid, sPath, nMode)
 end
 
 function vfs_state.handle_write(nSenderPid, nFd, sData)
-  local sSecureHandle = resolve_fd(nSenderPid, nFd)
-  local tHandle = tGlobalObjectTable[sSecureHandle]
-  
+  local tHandle = vfs_state.tOpenHandles[nFd]
   if not tHandle then return nil, "Invalid Handle" end
   
   if tHandle.type == "file" then
@@ -349,9 +293,7 @@ function vfs_state.handle_write(nSenderPid, nFd, sData)
 end
 
 function vfs_state.handle_read(nSenderPid, nFd, nCount)
-  local sSecureHandle = resolve_fd(nSenderPid, nFd)
-  local tHandle = tGlobalObjectTable[sSecureHandle]
-  
+  local tHandle = vfs_state.tOpenHandles[nFd]
   if not tHandle then return nil, "Invalid Handle" end
   
   if tHandle.type == "file" then
@@ -402,10 +344,7 @@ function vfs_state.handle_list(nSenderPid, sPath)
 end
 
 function vfs_state.handle_close(nSenderPid, nFd)
-    local sSecureHandle = resolve_fd(nSenderPid, nFd)
-    if not sSecureHandle then return nil end
-    
-    local tHandle = tGlobalObjectTable[sSecureHandle]
+    local tHandle = vfs_state.tOpenHandles[nFd]
     if not tHandle then return nil end
     
     if tHandle.type == "file" then
@@ -420,10 +359,7 @@ function vfs_state.handle_close(nSenderPid, nFd)
         wait_for_dkms()
     end
     
-    -- Cleanup tables
-    tGlobalObjectTable[sSecureHandle] = nil
-    tProcessFdMap[nSenderPid][nFd] = nil
-    
+    vfs_state.tOpenHandles[nFd] = nil
     return true
 end
 
@@ -478,41 +414,33 @@ local function wait_with_throbber(sMessage, nSeconds)
   if oGpu and sScreen then 
      oGpu.bind(sScreen) 
      nWidth, nHeight = oGpu.getResolution()
-     -- [[ FIX: FORCE WHITE ]] --
-     oGpu.setForeground(0xFFFFFF) 
   end
 
   local nStartTime = computer.uptime()
   local nDeadline = nStartTime + nSeconds
   
+  local sPattern = " * * * "
   local nFrame = 0
-  local nThrobberWidth = 12 
+  local nThrobberWidth = 12 -- (  * * *   )
   
-  -- Log to kernel log too, for history
-  syscall("kernel_log", sMessage)
+  syscall("kernel_log", "[PM] " .. sMessage)
   
   while computer.uptime() < nDeadline do
     if oGpu then
-       -- Ensure color is reset every frame in case a background log changed it
-       oGpu.setForeground(0xFFFFFF) 
-       
        local nPos = math.floor(nFrame / 1.5) % (nThrobberWidth * 2 - 2)
        if nPos >= nThrobberWidth then nPos = (nThrobberWidth * 2 - 2) - nPos end
        
-       local sLine = "["
+       local sLine = "("
        for i = 0, nThrobberWidth - 1 do
           if i >= nPos and i < nPos + 3 then
-             sLine = sLine .. "="
+             sLine = sLine .. "*"
           else
              sLine = sLine .. " "
           end
        end
-       sLine = sLine .. "]"
-       local sFullMsg = string.format("%s %s", sLine, sMessage)
-       
-       -- Clear line first (optional but cleaner)
-       oGpu.fill(1, nHeight, nWidth, 1, " ")
-       oGpu.set(1, nHeight, sFullMsg)
+       sLine = sLine .. ")"
+       local sFullMsg = string.format("%s %s", sLine, "Driver loading...")
+       oGpu.set(1, nHeight, sFullMsg .. string.rep(" ", nWidth - #sFullMsg))
        
        nFrame = nFrame + 1
     end
@@ -520,35 +448,37 @@ local function wait_with_throbber(sMessage, nSeconds)
     syscall("process_yield")
   end
   
-  if oGpu then 
-      oGpu.fill(1, nHeight, nWidth, 1, " ") 
-      oGpu.setForeground(0xFFFFFF) -- Final reset before init
-  end
+  if oGpu then oGpu.fill(1, nHeight, nWidth, 1, " ") end
 end
 
 local function __scandrvload()
-  syscall("kernel_log", "Initiating device detection sequence...")
+  --syscall("kernel_log", "[PM] Loading RingFS Driver...")
+  --syscall("signal_send", nDkmsPid, "load_driver_path", "/drivers/ringfs.sys.lua")
   
+  syscall("kernel_log", "[PM] Loading TTY Driver explicitly...")
+  --raw_computer.beep(600, 0.01)
   syscall("signal_send", nDkmsPid, "load_driver_path", "/drivers/tty.sys.lua")
-  syscall("process_wait", 0)
+  --raw_computer.beep(600, 0.01)
+  
+  local deadline = computer.uptime() + 0.0
+  while computer.uptime() < deadline do syscall("process_yield") end
+
+  syscall("kernel_log", "[PM] Scanning components...")
+  --raw_computer.beep(600, 0.01)
 
   local sRootUuid, oRootProxy = syscall("kernel_get_root_fs")
+  if not oRootProxy then syscall("kernel_panic", "Pipeline could not get root FS info.") end
   vfs_state.oRootFs = oRootProxy
   
   local bListOk, tCompList = syscall("raw_component_list")
   if not bListOk then return end
   
-  local nFound = 0
   for sAddr, sCtype in pairs(tCompList) do
-    nFound = nFound + 1
-    if sCtype ~= "screen" and sCtype ~= "gpu" and sCtype ~= "keyboard" and sCtype ~= "computer" and sCtype ~= "eeprom" then
-        local sShortAddr = sAddr:sub(1, 8)
-        syscall("kernel_log", string.format("Found hardware: %s @ %s", sCtype, sShortAddr))
-        
+    if sCtype ~= "screen" and sCtype ~= "gpu" and sCtype ~= "keyboard" then
+        syscall("kernel_log", "[PM] Loading driver for " .. sCtype)
         syscall("signal_send", nDkmsPid, "load_driver_for_component", sCtype, sAddr)
     end
   end
-  syscall("kernel_log", string.format("Hardware scan complete. Devices enumerated: %d", nFound))
 end
 
 
@@ -574,9 +504,6 @@ local function process_fstab()
            if type(tFstab) == "table" then
                for _, tEntry in ipairs(tFstab) do
                   if tEntry.type == "ringfs" then
-                     local sOpts = tEntry.options or "defaults"
-                     syscall("kernel_log", string.format("[INFO] Mounting %s -> %s (%s)", tEntry.type, tEntry.mount, sOpts))
-
                      -- 1. Load the driver explicitly
                      if not bRingFsLoaded then
                          syscall("kernel_log", "[PM] Auto-loading RingFS...")
@@ -652,9 +579,9 @@ else
    process_autoload()
 end
 
-wait_with_throbber("exec: /init.lua", 0.75)
+wait_with_throbber("Waiting for system stabilization...", 1.0)
 
-syscall("kernel_log", "[PM] Handing off to userspace.")
+syscall("kernel_log", "[PM] Silence on deck. Handing off to userspace.")
 syscall("kernel_set_log_mode", false)
 
 
@@ -664,13 +591,8 @@ local sInitPath = env.INIT_PATH or "/bin/init.lua"
 syscall("kernel_log", "[PM] Spawning " .. sInitPath .. "...")
 local nInitPid, sInitErr = syscall("process_spawn", sInitPath, 3)
 
-if not nInitPid then 
-    syscall("kernel_log", "[FAIL] Failed to spawn init system: " .. tostring(sInitErr))
-    syscall("kernel_panic", "No init found.")
-else 
-    -- This will likely be cleared by init immediately, but it's nice to see for 1 frame
-    syscall("kernel_log", string.format("[ OK ] boot PID 1: %d", nInitPid))
-end
+if not nInitPid then syscall("kernel_log", "[PM] FAILED TO SPAWN INIT: " .. tostring(sInitErr))
+else syscall("kernel_log", "[PM] Init spawned as PID " .. tostring(nInitPid)) end
 
 
 while true do

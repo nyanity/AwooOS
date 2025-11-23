@@ -1,4 +1,4 @@
--- AwooOS File System Table
+-- AxisOS File System Table
 return {
   { uuid = "8d390d50-4bc9-4d6d-8f63-c9057f8d20ff", path = "/", mount = "/", type = "rootfs", options = "rw", },
   { uuid = "8d390d50-4bc9-4d6d-8f63-c9057f8d20ff", path = "/home", mount = "/home", type = "homefs", options = "rw,size=3000", },

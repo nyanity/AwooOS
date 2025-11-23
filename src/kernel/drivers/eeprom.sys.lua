@@ -7,11 +7,6 @@ g_tDriverInfo = { sDriverName = "AxisEEPROMStub", sDriverType = tDKStructs.DRIVE
 
 function DriverEntry(pDriverObject)
   oKMD.DkPrint("EEPROM Stub Driver loaded. Doing nothing.")
-  
-  -- mandatory irql init.
-  -- it's a rom. it doesn't get much more passive than this.
-  pDriverObject.nCurrentIrql = tDKStructs.PASSIVE_LEVEL
-  
   return tStatus.STATUS_SUCCESS
 end
 
