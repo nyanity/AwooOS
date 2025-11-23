@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Axis OS | Xen Architecture</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <!-- Fonts Load -->
@@ -404,12 +404,9 @@
         
         let width, height;
         let mouseX = -1000, mouseY = -1000;
-        
-        // Configuration
-        const spacing = 40; // Size of grid squares
-        const pointSize = 1; 
-        const influenceRadius = 250; // How far mouse affects grid
-        const maxDistortion = 15; // Max pixels to push
+        const spacing = 40; 
+        const influenceRadius = 250; 
+        const maxDistortion = 15; 
         
         function resize() {
             width = canvas.width = window.innerWidth;
@@ -424,7 +421,6 @@
         });
 
         function drawGrid() {
-            // Get current grid color from CSS variables (updates on theme change)
             const computedStyle = getComputedStyle(document.body);
             ctx.strokeStyle = computedStyle.getPropertyValue('--grid-color').trim();
             ctx.lineWidth = 1;
@@ -433,80 +429,126 @@
             const cols = Math.ceil(width / spacing) + 1;
             const rows = Math.ceil(height / spacing) + 1;
             
-            // Generate points array
             const points = [];
             for(let y = 0; y < rows; y++) {
                 const row = [];
                 for(let x = 0; x < cols; x++) {
                     const ox = x * spacing;
                     const oy = y * spacing;
-                    
-                    // Calculate distortion
                     const dx = mouseX - ox;
                     const dy = mouseY - oy;
                     const dist = Math.sqrt(dx*dx + dy*dy);
-                    
                     let tx = ox;
                     let ty = oy;
                     
                     if (dist < influenceRadius) {
                         const force = (influenceRadius - dist) / influenceRadius;
-                        // Push away effect
-                        // tx -= (dx / dist) * force * maxDistortion;
-                        // ty -= (dy / dist) * force * maxDistortion;
-                        
-                        // OR: Magnify effect (Pull towards) - usually looks better for "lens"
-                         tx -= (dx / dist) * force * maxDistortion;
-                         ty -= (dy / dist) * force * maxDistortion;
+                        tx -= (dx / dist) * force * maxDistortion;
+                        ty -= (dy / dist) * force * maxDistortion;
                     }
-                    
                     row.push({x: tx, y: ty});
                 }
                 points.push(row);
             }
             
             ctx.beginPath();
-            
-            // Draw horizontal lines
             for(let y = 0; y < rows; y++) {
                 for(let x = 0; x < cols - 1; x++) {
                     ctx.moveTo(points[y][x].x, points[y][x].y);
                     ctx.lineTo(points[y][x+1].x, points[y][x+1].y);
                 }
             }
-            
-            // Draw vertical lines
             for(let x = 0; x < cols; x++) {
                 for(let y = 0; y < rows - 1; y++) {
                     ctx.moveTo(points[y][x].x, points[y][x].y);
                     ctx.lineTo(points[y+1][x].x, points[y+1][x].y);
                 }
             }
-            
             ctx.stroke();
             requestAnimationFrame(drawGrid);
         }
-
         drawGrid();
 
 
-        // --- AUDIO SYSTEM ---
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        const audioCtx = new AudioContext();
+        // --- ADVANCED AUDIO SYSTEM ---
+        // Инициализируем контекст лениво, чтобы не пугать браузер при загрузке
+        let audioCtx = null;
 
-        function playBeep() {
-            if (audioCtx.state === 'suspended') audioCtx.resume();
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(800, audioCtx.currentTime); 
-            oscillator.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-            gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime); 
-            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            oscillator.start();
-            oscillator.stop(audioCtx.currentTime + 0.15);
+        function initAudio() {
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContext();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playSound(type) {
+            initAudio(); // Пробуждаем аудио при попытке воспроизведения
+            
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            if (type === 'process') {
+                osc.type = 'square';
+                const freq = 400 + Math.random() * 400; 
+                osc.frequency.setValueAtTime(freq, now);
+                gain.gain.setValueAtTime(0.05, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+                osc.start(now);
+                osc.stop(now + 0.05);
+            } 
+            else if (type === 'start') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.linearRampToValueAtTime(600, now + 0.4);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.linearRampToValueAtTime(0, now + 0.4);
+                osc.start(now);
+                osc.stop(now + 0.4);
+            }
+            else if (type === 'error') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(100, now);
+                osc.frequency.linearRampToValueAtTime(50, now + 0.3);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                osc.start(now);
+                osc.stop(now + 0.3);
+            }
+            else {
+                // Default beep (для кнопки copy)
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, now); 
+                osc.frequency.exponentialRampToValueAtTime(0.01, now + 0.15);
+                gain.gain.setValueAtTime(0.05, now); 
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                osc.start(now);
+                osc.stop(now + 0.15);
+            }
+        }
+
+        function playSuccess() {
+            initAudio();
+            const now = audioCtx.currentTime;
+            [523.25, 659.25, 783.99].forEach((freq, i) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.type = 'triangle'; 
+                osc.frequency.setValueAtTime(freq, now + i * 0.1); 
+                gain.gain.setValueAtTime(0, now + i * 0.1);
+                gain.gain.linearRampToValueAtTime(0.1, now + i * 0.1 + 0.05); 
+                gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.1 + 0.6); 
+                osc.start(now + i * 0.1);
+                osc.stop(now + i * 0.1 + 0.6);
+            });
         }
 
         // --- THEME ENGINE ---
@@ -519,16 +561,23 @@
         const savedTheme = localStorage.getItem('axis-theme');
         if (savedTheme) { setTheme(savedTheme); document.getElementById('themeSelector').value = savedTheme; }
 
-        // --- INSTALLER LOGIC ---
+        // --- INSTALLER LOGIC (Кнопка Quick Install) ---
         const installBtn = document.getElementById('installBtn');
         const installerBox = document.getElementById('installerBox');
         const cmdBox = document.getElementById('cmdBox');
         const copyHint = document.getElementById('copyHint');
         const cmdText = "wget https://raw.githubusercontent.com/nyanity/AxisOS/main/install.lua";
-        installBtn.addEventListener('click', () => { installerBox.classList.toggle('open'); });
+        
+        // Исправленный обработчик клика
+        if (installBtn) {
+            installBtn.addEventListener('click', () => { 
+                installerBox.classList.toggle('open'); 
+            });
+        }
+
         function copyCmd() {
             navigator.clipboard.writeText(cmdText).then(() => {
-                playBeep();
+                playSound('beep');
                 cmdBox.classList.add('copied');
                 copyHint.innerText = "COPIED!";
                 showToast("Installer command copied", "success");
@@ -539,12 +588,14 @@
         // --- DEPLOYMENT BUILDER ---
         const repoBase = "https://raw.githubusercontent.com/Axis-OC/axis-os/main/src/kernel";
         const biosUrl = "https://raw.githubusercontent.com/Axis-OC/axis-os/main/eeprom/boot.lua";
+        
         const fileManifest = [
             "kernel.lua", "bin/init.lua", "bin/sh.lua", "lib/filesystem.lua", "lib/pipeline_manager.lua", "lib/syscall.lua",
             "drivers/tty.sys.lua", "drivers/keyboard.sys.lua", "drivers/gpu.sys.lua", "drivers/screen.sys.lua", "drivers/ringfs.sys.lua",
             "system/dkms.lua", "system/driverdispatch.lua", "system/lib/dk/shared_structs.lua", "system/lib/dk/kmd_api.lua",
             "sys/security/dkms_sec.lua", "etc/perms.lua", "etc/sys.cfg"
         ];
+
         function log(msg, type="info", spin=false) {
             const container = document.getElementById('buildLog');
             const div = document.createElement('div');
@@ -560,40 +611,64 @@
             while(container.children.length > 8) container.removeChild(container.firstChild);
             return div;
         }
+
         async function startBuild() {
             const uuid = document.getElementById('uuidInput').value.trim();
             const logContainer = document.getElementById('buildLog');
             logContainer.innerHTML = ''; 
-            if(!uuid || uuid.length < 5) { log("Invalid UUID.", "error"); showToast("Invalid UUID", "error"); return; }
-            playBeep();
+            
+            if(!uuid || uuid.length < 5) { 
+                log("Invalid UUID.", "error"); 
+                showToast("Invalid UUID", "error"); 
+                playSound('error');
+                return; 
+            }
+            
+            playSound('start'); 
+            
             const zip = new JSZip();
             log("Generating fstab for " + uuid.substring(0,8) + "...", "info");
+            
             const fstabContent = `return { { uuid = "${uuid}", path = "/", mount = "/", type = "rootfs", options = "rw", }, { uuid = "${uuid}", path = "/home", mount = "/home", type = "homefs", options = "rw,size=3000", }, { uuid = "${uuid}", path = "/swapfile", mount = "none", type = "swap", options = "size=3000", }, { uuid = "${uuid}", path = "/log", mount = "/var/log", type = "ringfs", options = "rw,size=3000", }, { uuid = "virtual", path = "/dev/ringlog", mount = "/var/log/syslog", type = "ringfs", options = "rw,size=8192" }, }`;
             zip.file("etc/fstab.lua", fstabContent);
-            await new Promise(r => setTimeout(r, 600));
+            
+            await new Promise(r => setTimeout(r, 600)); 
             log("Configuration generated.", "success");
+            
             for (const file of fileManifest) {
                 const logEl = log(`Downloading ${file}...`, "info", true);
+                
+                // Имитация скорости
+                await new Promise(r => setTimeout(r, 150)); 
+                
                 try {
                     const response = await fetch(`${repoBase}/${file}`);
                     if(!response.ok) throw new Error(response.status);
                     const text = await response.text();
                     zip.file(file, text);
+                    
+                    playSound('process'); 
+                    
                     logEl.innerHTML = `<div class="log-icon"><span style="color:var(--success-color)">✓</span></div><div class="log-text">Downloaded ${file}</div>`;
                 } catch (e) {
+                    playSound('error'); 
                     logEl.innerHTML = `<div class="log-icon"><span style="color:var(--error-color)">✗</span></div><div class="log-text">Failed ${file} (CORS?)</div>`;
                     console.warn(e);
                 }
-                await new Promise(r => setTimeout(r, 100));
             }
+            
             log("Compressing image...", "info", true);
+            
             zip.generateAsync({type:"blob"}).then(function(content) {
+                playSuccess(); 
+                
                 log("Image created successfully.", "success");
                 const link = document.createElement("a");
                 link.href = URL.createObjectURL(content);
                 link.download = "AxisOS_Install.zip";
                 link.click();
                 showToast("Download started!", "success");
+                
                 setTimeout(() => {
                     log("Don't forget boot.lua (EEPROM)!", "info");
                     const eepromLink = document.createElement('a');
@@ -601,6 +676,7 @@
                     eepromLink.target = "_blank";
                     eepromLink.innerText = ">> Download EEPROM <<";
                     eepromLink.style.color = "var(--accent-color)";
+                    
                     const div = document.createElement('div');
                     div.className = 'log-line';
                     div.style.marginTop = '10px';
