@@ -1,4 +1,4 @@
--- AwooOS Password File
+-- AxisOS Password File
 return {
   root = {
     uid = 0,

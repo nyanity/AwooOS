@@ -1,6 +1,6 @@
 # 2.1. Kernel Architecture
 
-The AwooOS kernel, implemented in `kernel.lua`, is a monolithic entity responsible for the most critical system functions.
+The AxisOS kernel, implemented in `kernel.lua`, is a monolithic entity responsible for the most critical system functions.
 
 ## The Scheduler
 

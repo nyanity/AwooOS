@@ -1,11 +1,11 @@
 
 ---
 
-# AwooOS System Call Interface Specification
+# AxisOS System Call Interface Specification
 
 ## 1. Introduction and Core Philosophy
 
-The System Call, or "syscall," serves as the canonical, mandatory, and sole interface between user-space processes (Rings 1-3) and the AwooOS kernel (Ring 0). This interface is the fundamental mechanism for requesting privileged operations, such as hardware interaction, process management, or inter-process communication (IPC). The entire security and stability model of the operating system is predicated on the strict enforcement of this boundary.
+The System Call, or "syscall," serves as the canonical, mandatory, and sole interface between user-space processes (Rings 1-3) and the AxisOS kernel (Ring 0). This interface is the fundamental mechanism for requesting privileged operations, such as hardware interaction, process management, or inter-process communication (IPC). The entire security and stability model of the operating system is predicated on the strict enforcement of this boundary.
 
 All interactions are funneled through a single, globally available function, `syscall()`, which acts as a gateway to the kernel's dispatcher. The dispatcher is responsible for identifying the calling process, validating its privileges, and routing its request to the appropriate kernel subsystem or registered Ring 1 service. This design intentionally abstracts the kernel's internal complexity from user-space applications, presenting a stable and well-defined API while allowing the underlying kernel implementation to evolve.
 
@@ -17,7 +17,7 @@ Every invocation of `syscall(name, ...)` from any process triggers a sequence of
 
 Upon invocation, the dispatcher first identifies the execution context. It retrieves the coroutine of the currently running code via `coroutine.running()` and uses the kernel's internal `tPidMap` table to resolve this coroutine to a Process ID (PID). This PID is the immutable identity of the caller for the duration of the syscall. If the coroutine is not tracked by the kernel, this indicates a severe integrity violation, and the system will immediately trigger a kernel panic.
 
-With the caller's PID and its associated privilege Ring established, the dispatcher proceeds to the request routing phase. The first check is against the `tSyscallOverrides` table. This table maps syscall names to the PID of a Ring 1 service that has registered to handle that specific call. If an entry exists for the requested syscall, the dispatcher does not execute any kernel code directly. Instead, it marshals the syscall name and its arguments into an IPC signal and sends it to the registered handler process. The original calling process is then put into a `sleeping` state, pending a response from the handler. The handler service is now fully responsible for processing the request and, crucially, for waking the original caller with the appropriate return values. This mechanism is the foundation of the microkernel-like services in AwooOS.
+With the caller's PID and its associated privilege Ring established, the dispatcher proceeds to the request routing phase. The first check is against the `tSyscallOverrides` table. This table maps syscall names to the PID of a Ring 1 service that has registered to handle that specific call. If an entry exists for the requested syscall, the dispatcher does not execute any kernel code directly. Instead, it marshals the syscall name and its arguments into an IPC signal and sends it to the registered handler process. The original calling process is then put into a `sleeping` state, pending a response from the handler. The handler service is now fully responsible for processing the request and, crucially, for waking the original caller with the appropriate return values. This mechanism is the foundation of the microkernel-like services in AxisOS.
 
 If no override is registered for the syscall, the dispatcher proceeds with the standard kernel path. It consults the main `tSyscallTable` to find the handler function associated with the syscall name. A critical security check is then performed: the caller's Ring level is validated against the `allowed_rings` array defined for that syscall. Any attempt by a process to invoke a syscall from a privilege level not explicitly permitted in this array constitutes a Ring violation. Such violations are considered fatal for the offending process; it is immediately terminated, and the syscall fails.
 
@@ -25,7 +25,7 @@ Assuming the Ring check passes, the kernel invokes the handler function within a
 
 ## 3. Defining a New System Call
 
-Adding a new system call to the AwooOS kernel is a straightforward process that involves defining a handler function and registering it in the `kernel.tSyscallTable`.
+Adding a new system call to the AxisOS kernel is a straightforward process that involves defining a handler function and registering it in the `kernel.tSyscallTable`.
 
 A system call registration is a table with two required keys:
 *   `func`: The Lua function that will be executed when the syscall is invoked. This function will always receive the caller's PID as its first argument, followed by any arguments passed by the user-space process.
@@ -43,7 +43,7 @@ local function syscall_get_kernel_version(nCallingPid)
   -- but the parameter must be present to accept the dispatcher's argument.
   
   -- The version is hardcoded for this example.
-  local KERNEL_VERSION = "AwooOS v0.21B25YM11"
+  local KERNEL_VERSION = "AxisOS v0.3"
   
   -- Syscall handlers should return values that will be passed
   -- back to the user-space caller.

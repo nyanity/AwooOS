@@ -5,7 +5,7 @@ local tStatus = require("errcheck")
 local oKMD = require("kmd_api")
 local tDKStructs = require("shared_structs")
 
-g_tDriverInfo = { sDriverName = "AwooScreenStub", sDriverType = tDKStructs.DRIVER_TYPE_KMD, nLoadPriority = 200 }
+g_tDriverInfo = { sDriverName = "AxisScreenStub", sDriverType = tDKStructs.DRIVER_TYPE_KMD, nLoadPriority = 200 }
 
 function DriverEntry(pDriverObject)
   oKMD.DkPrint("Screen Stub Driver loaded. GPU/TTY drivers are in control.")

@@ -8,7 +8,7 @@ local oKMD = require("kmd_api")
 local tDKStructs = require("shared_structs")
 
 g_tDriverInfo = {
-  sDriverName = "AwooTTY",
+  sDriverName = "AxisTTY",
   sDriverType = tDKStructs.DRIVER_TYPE_KMD,
   nLoadPriority = 100,
   sVersion = "4.7.0",
@@ -193,7 +193,7 @@ end
 -- [[ 4. Driver Entry ]] --
 
 function DriverEntry(pObj)
-  oKMD.DkPrint("AwooTTY v4.7 IRQL-Verified Loaded.")
+  oKMD.DkPrint("AxisTTY v4.7 IRQL-Verified Loaded.")
   
   -- mandatory irql init.
   -- the terminal god demands passive level.

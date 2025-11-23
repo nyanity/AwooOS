@@ -2,7 +2,7 @@
 
 # 2.2. The Boot Sequence
 
-The process of starting AwooOS involves a multi-stage sequence, beginning with the BIOS and culminating in the execution of the first user-space process.
+The process of starting AxisOS involves a multi-stage sequence, beginning with the BIOS and culminating in the execution of the first user-space process.
 
 ## Stage 1: BIOS Execution (`eeprom.lua`)
 

@@ -2,7 +2,7 @@
 
 ## The Layered Model
 
-AwooOS is structured in a series of layers, each with a distinct set of responsibilities and privileges, enforced by the Ring Model.
+AxisOS is structured in a series of layers, each with a distinct set of responsibilities and privileges, enforced by the Ring Model.
 
 - **Ring 0: The Kernel (`kernel.lua`)**: The core of the operating system. It is responsible for fundamental operations: process scheduling, memory management (sandboxing), syscall dispatching, and the initial handling of hardware events. It is the most privileged component but delegates complex logic to Ring 1.
 

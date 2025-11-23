@@ -1,7 +1,7 @@
 --
 -- installer.lua
--- AwooOS Installer // Arch-itect Edition v2.6
--- "I use AwooOS, by the way."
+-- AxisOS Installer // Arch-itect Edition v2.6
+-- "I use AxisOS, by the way."
 --
 
 local component = require("component")
@@ -17,7 +17,7 @@ local internet = component.internet
 
 local DEBUG_MODE = false 
 local REPO_OWNER = "nyanity"
-local REPO_NAME = "AwooOS"
+local REPO_NAME = "AxisOS"
 local REPO_BRANCH = "main"
 
 -- Point API directly to packages folder
@@ -62,7 +62,7 @@ end
 
 local function http_get(sUrl)
     if DEBUG_MODE then return "[]" end
-    local h, err = internet.request(sUrl, nil, {["User-Agent"]="AwooInstaller/2.6"})
+    local h, err = internet.request(sUrl, nil, {["User-Agent"]="AxisInstaller/2.6"})
     if not h then return nil, err end
     local buf = ""
     for chunk in h do buf = buf .. chunk end
@@ -116,7 +116,7 @@ end
 local function draw_header(subtitle)
     gpu.setBackground(C_HEADER); gpu.setForeground(C_ACCENT)
     gpu.fill(1, 1, W, 1, " ")
-    gpu.set(2, 1, "AwooOS Installer" .. (subtitle and (" :: " .. subtitle) or ""))
+    gpu.set(2, 1, "AxisOS Installer" .. (subtitle and (" :: " .. subtitle) or ""))
     local time = os.date("%H:%M"); gpu.set(W - #time - 1, 1, time)
     gpu.setBackground(C_BG)
 end
@@ -207,7 +207,7 @@ end
 -- [[ 3. STATE & LOGIC ]] --
 
 local State = {
-    Hostname = "awoobox",
+    Hostname = "abox",
     RootPass = "toor",
     Users = {},
     Mounts = {},
@@ -222,7 +222,7 @@ local function draw_dashboard()
     local lx, ly = 3, 3
     
     gpu.setForeground(C_ACCENT)
-    gpu.set(lx, ly+0, "   /\\   AwooOS")
+    gpu.set(lx, ly+0, "   /\\   AxisOS")
     gpu.set(lx, ly+1, "  /  \\   v2.6")
     gpu.set(lx, ly+2, " ( /\\ )  Installer")
     gpu.set(lx, ly+3, "  \\__/")
@@ -269,7 +269,7 @@ local function draw_dashboard()
     gpu.set(lx, ly+3, "ENTER      : Select")
 end
 
--- [[ 5. MODULE: PARTITION MANAGER (AwooParted) ]] --
+-- [[ 5. MODULE: PARTITION MANAGER (AxisParted) ]] --
 
 local function scan_drives()
     local drives = {}
@@ -586,12 +586,12 @@ local function install_os()
     for _, m in ipairs(State.Mounts) do if m.mount == "/" then root_uuid = m.uuid end end
     if not root_uuid then status_bar("Error: No Root Partition!"); os.sleep(2); return end
     
-    clear(); draw_header("Installing AwooOS")
+    clear(); draw_header("Installing AxisOS")
     draw_prog(0.05, "Formatting Root...")
     
     -- 0. Set Label
     local proxy = component.proxy(root_uuid)
-    proxy.setLabel("AwooOS")
+    proxy.setLabel("AxisOS")
     
     for _, f in ipairs(proxy.list("/")) do proxy.remove(f) end
     
@@ -644,7 +644,7 @@ local function install_os()
     -- 3. Configuration Generation
     draw_prog(0.9, "Generating Configs...")
     
-    local fstab = "-- AwooOS File System Table\nreturn {\n"
+    local fstab = "-- AxisOS File System Table\nreturn {\n"
     for _, m in ipairs(State.Mounts) do
         if m.uuid ~= "virtual" then
             local pth = "/dev/disk_" .. m.uuid:sub(1,4)
@@ -678,7 +678,7 @@ local function install_os()
         if bios_code then
             local min_bios = minify_code(bios_code)
             component.eeprom.set(min_bios)
-            component.eeprom.setLabel("AwooBIOS v6")
+            component.eeprom.setLabel("AxisBIOS v6")
             component.eeprom.setData(root_uuid)
             computer.setBootAddress(root_uuid)
         else
@@ -719,7 +719,7 @@ local function main_menu()
                  if u then table.insert(State.Users, {name=u, pass=input_box("Password", "", true), sudo=false}) end
             end },
             { txt="------------------", val="", fn=nil },
-            { txt="Install AwooOS",     val=">>>", fn=install_os },
+            { txt="Install AxisOS",     val=">>>", fn=install_os },
             { txt="Abort",              val="", fn=function() if confirm_dialog("Quit?") then os.exit() end end }
         }
         

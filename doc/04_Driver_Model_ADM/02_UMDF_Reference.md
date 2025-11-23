@@ -277,7 +277,7 @@ Just like a KMD, a UMD must declare its identity via the `g_tDriverInfo` table. 
 
 -- Define driver metadata. Note the DRIVER_TYPE.
 g_tDriverInfo = {
-  sDriverName = "AwooEcho",
+  sDriverName = "AxisEcho",
   -- This declaration informs the DKMS that this driver must be
   -- loaded into a User-Mode Driver Host process at Ring 3.
   sDriverType = tDKStructs.DRIVER_TYPE_UMD, 
@@ -343,7 +343,7 @@ local function fEchoDispatchWrite(pDeviceObject, pIrp) end
 -------------------------------------------------
 -- UMDs have a different entry point name by convention.
 function UMDriverEntry(pDriverObject)
-  oUMD.DkPrint("AwooEcho UMDriverEntry starting.")
+  oUMD.DkPrint("AxisEcho UMDriverEntry starting.")
   
   -- 1. Populate the dispatch table. This is the primary responsibility.
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_CREATE] = fEchoDispatchCreate
@@ -353,7 +353,7 @@ function UMDriverEntry(pDriverObject)
   -- It does NOT register an unload routine in the same way.
   -- Its job is simply to provide the I/O logic. The host manages its lifecycle.
   
-  oUMD.DkPrint("AwooEcho UMDriverEntry completed successfully.")
+  oUMD.DkPrint("AxisEcho UMDriverEntry completed successfully.")
   return tStatus.STATUS_SUCCESS
 end
 
@@ -410,7 +410,7 @@ local tDKStructs = require("shared_structs")
 
 -- 1. Define driver metadata. Note the DRIVER_TYPE.
 g_tDriverInfo = {
-  sDriverName = "AwooEcho",
+  sDriverName = "AxisEcho",
   sDriverType = tDKStructs.DRIVER_TYPE_UMD, -- This is a User-Mode Driver.
   nLoadPriority = 901,
   sVersion = "1.0.0",
@@ -451,7 +451,7 @@ end
 
 -- UMDs have a different entry point name by convention.
 function UMDriverEntry(pDriverObject)
-  oUMD.DkPrint("AwooEcho UMDriverEntry starting.")
+  oUMD.DkPrint("AxisEcho UMDriverEntry starting.")
   
   -- 2. Populate the dispatch table, just like a KMD.
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_CREATE] = fEchoDispatchCreate
@@ -461,7 +461,7 @@ function UMDriverEntry(pDriverObject)
   -- The host process or a higher-level manager is responsible for this.
   -- The UMD's job is simply to provide the logic (the dispatch table).
   
-  oUMD.DkPrint("AwooEcho UMDriverEntry completed successfully.")
+  oUMD.DkPrint("AxisEcho UMDriverEntry completed successfully.")
   return tStatus.STATUS_SUCCESS
 end
 

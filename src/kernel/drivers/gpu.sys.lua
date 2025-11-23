@@ -12,7 +12,7 @@ local tDKStructs = require("shared_structs")
 
 -- static info for DKMS. this is our driver's resume.
 g_tDriverInfo = {
-  sDriverName = "AwooGPU",
+  sDriverName = "AxisGPU",
   sDriverType = tDKStructs.DRIVER_TYPE_KMD,
   nLoadPriority = 150, -- important, but less so than the initial TTY
   sVersion = "1.0.0",
@@ -86,7 +86,7 @@ end
 
 -- DKMS calls this function after it creates our process. this is where we set everything up.
 function DriverEntry(pDriverObject)
-  oKMD.DkPrint("AwooGPU DriverEntry starting.")
+  oKMD.DkPrint("AxisGPU DriverEntry starting.")
   
   -- 1. Set up our IRP dispatch table. this tells DKMS which functions to call for which actions.
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_CREATE] = fGpuDispatchCreate
@@ -125,19 +125,19 @@ function DriverEntry(pDriverObject)
   -- the device extension is our private scratchpad for this device instance.
   g_pDeviceObject.pDeviceExtension.oGpuProxy = oProxy
   
-  oKMD.DkPrint("AwooGPU DriverEntry completed successfully.")
+  oKMD.DkPrint("AxisGPU DriverEntry completed successfully.")
   return tStatus.STATUS_SUCCESS
 end
 
 -- DKMS calls this when it's time to unload the driver.
 function DriverUnload(pDriverObject)
-  oKMD.DkPrint("AwooGPU DriverUnload starting.")
+  oKMD.DkPrint("AxisGPU DriverUnload starting.")
   
   -- cleanup in reverse order of creation.
   oKMD.DkDeleteSymbolicLink("/dev/gpu0")
   oKMD.DkDeleteDevice(g_pDeviceObject)
   
-  oKMD.DkPrint("AwooGPU DriverUnload completed.")
+  oKMD.DkPrint("AxisGPU DriverUnload completed.")
   return tStatus.STATUS_SUCCESS
 end
 

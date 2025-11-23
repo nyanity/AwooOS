@@ -10,7 +10,7 @@ local oKMD = require("kmd_api")
 local tDKStructs = require("shared_structs")
 
 g_tDriverInfo = {
-  sDriverName = "AwooNet",
+  sDriverName = "AxisNet",
   sDriverType = tDKStructs.DRIVER_TYPE_KMD,
   nLoadPriority = 250,
   sVersion = "1.0.0"
@@ -99,7 +99,7 @@ end
 -------------------------------------------------
 
 function DriverEntry(pDriverObject)
-  oKMD.DkPrint("AwooNet: Initializing...")
+  oKMD.DkPrint("AxisNet: Initializing...")
   
   -- mandatory irql init.
   -- downloading cat pictures is a passive activity.
@@ -126,12 +126,12 @@ function DriverEntry(pDriverObject)
   end
   
   if not g_oNetProxy then
-     oKMD.DkPrint("AwooNet: No internet card found. I am useless.")
+     oKMD.DkPrint("AxisNet: No internet card found. I am useless.")
      return tStatus.STATUS_NO_SUCH_DEVICE
   end
   
   oKMD.DkCreateSymbolicLink("/dev/net", "\\Device\\Net0")
-  oKMD.DkPrint("AwooNet: Online at /dev/net")
+  oKMD.DkPrint("AxisNet: Online at /dev/net")
   
   return tStatus.STATUS_SUCCESS
 end

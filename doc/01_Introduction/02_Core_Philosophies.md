@@ -1,6 +1,6 @@
 # 1.2. Core Design Philosophies
 
-The design and implementation of AwooOS are guided by several core principles.
+The design and implementation of AxisOS are guided by several core principles.
 
 ### Stability Through Isolation
 
@@ -16,4 +16,4 @@ The system is designed to be extensible. The syscall override mechanism and the 
 
 ### Abstraction and Unification
 
-The AwooOS Driver Model (ADM) and the Virtual File System (VFS) work in concert to provide a unified interface to system resources. All devices, from TTY consoles to fusion reactors, are presented to applications as files in the VFS namespace. This simplifies application development by abstracting away the specifics of hardware interaction.
+The AxisOS Driver Model (ADM) and the Virtual File System (VFS) work in concert to provide a unified interface to system resources. All devices, from TTY consoles to fusion reactors, are presented to applications as files in the VFS namespace. This simplifies application development by abstracting away the specifics of hardware interaction.

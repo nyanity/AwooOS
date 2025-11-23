@@ -1,6 +1,6 @@
 # 2.3. The Process Model and Lifecycle
 
-A process in AwooOS is the fundamental unit of execution. Each process consists of a sandboxed Lua environment, a main coroutine, a unique Process ID (PID), and an associated privilege Ring.
+A process in AxisOS is the fundamental unit of execution. Each process consists of a sandboxed Lua environment, a main coroutine, a unique Process ID (PID), and an associated privilege Ring.
 
 ## Process States
 

@@ -1,6 +1,6 @@
 --
 -- /lib/thread.lua
--- Multithreading library for AwooOS.
+-- Multithreading library for AxisOS.
 -- Because doing one thing at a time is boring.
 --
 

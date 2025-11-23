@@ -17,7 +17,7 @@ if not oInternet and not DEBUG_MODE then
   return
 end
 
-local g_sBaseGitApiUrl = "https://api.github.com/repos/nyanity/AwooOS"
+local g_sBaseGitApiUrl = "https://api.github.com/repos/nyanity/AxisOS"
 local g_sKernelPath = "/src/kernel/"
 local g_sBiosPath = "/src/bios/"
 
@@ -63,7 +63,7 @@ local function fFetchBranches(bForceRefresh)
     --
 
     local sUrl = g_sBaseGitApiUrl .. "/branches"
-    local tHeaders = { ["User-Agent"] = "AwooInstallScript" }
+    local tHeaders = { ["User-Agent"] = "AxisInstallScript" }
 
     oGpu.set(1, h, "Status: Fetching branches from GitHub...")
 
@@ -96,7 +96,7 @@ local function fFetchRecursive(sPath)
     if sCleanPath:sub(1,1) == "/" then sCleanPath = sCleanPath:sub(2) end
 
     local sUrl = g_sBaseGitApiUrl .. "/contents/" .. sCleanPath .. "?ref=" .. g_tAvalailableBranches.sCurrentBranch
-    local tHeaders = { ["User-Agent"] = "AwooOS-Installer" }
+    local tHeaders = { ["User-Agent"] = "AxisOS-Installer" }
 
     local w, h = oGpu.getResolution()
     oGpu.fill(1, h, w, 1, " ")

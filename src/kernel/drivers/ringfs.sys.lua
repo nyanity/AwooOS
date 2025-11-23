@@ -9,7 +9,7 @@ local oKMD = require("kmd_api")
 local tDKStructs = require("shared_structs")
 
 g_tDriverInfo = {
-  sDriverName = "AwooRingFS",
+  sDriverName = "AxisRingFS",
   sDriverType = tDKStructs.DRIVER_TYPE_KMD, -- it's a generic utility driver
   nLoadPriority = 400,
   sVersion = "1.0.0",

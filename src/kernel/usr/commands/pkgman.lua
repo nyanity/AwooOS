@@ -1,5 +1,5 @@
 --
--- pkgman - AwooOS Package Manager
+-- pkgman - AxisOS Package Manager
 -- "It's like pacman, but with more howling."
 --
 
@@ -8,7 +8,7 @@ local sys = require("syscall")
 local tArgs = env.ARGS
 
 -- Configuration
-local REPO_BASE = "https://raw.githubusercontent.com/nyanity/AwooOS/refs/heads/v0.21N25RC01/src/packages/"
+local REPO_BASE = "https://raw.githubusercontent.com/nyanity/AxisOS/refs/heads/v0.21N25RC01/src/packages/"
 
 -- Mappings for "zoning"
 local tZones = {

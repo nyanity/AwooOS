@@ -1,6 +1,6 @@
 # 5.1. VFS Architecture
 
-The Virtual File System in AwooOS is unique because it is primarily implemented in **Ring 1** by the **Pipeline Manager**, not the kernel.
+The Virtual File System in AxisOS is unique because it is primarily implemented in **Ring 1** by the **Pipeline Manager**, not the kernel.
 
 ## The Syscall Override Mechanism
 

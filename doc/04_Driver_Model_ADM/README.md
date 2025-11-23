@@ -1,12 +1,12 @@
-# AwooOS Driver Model (ADM) Specification
+# AxisOS Driver Model (ADM) Specification
 
 ## 1. Architectural Overview
 
-The AwooOS Driver Model (ADM) is a unified, layered architecture for developing device drivers that run on the AwooOS kernel. It provides a structured framework that abstracts the underlying complexities of the kernel and hardware, allowing developers to write robust, event-driven code. The ADM is heavily inspired by the object-based models found in modern operating systems, particularly the Windows Driver Model (WDM).
+The AxisOS Driver Model (ADM) is a unified, layered architecture for developing device drivers that run on the AxisOS kernel. It provides a structured framework that abstracts the underlying complexities of the kernel and hardware, allowing developers to write robust, event-driven code. The ADM is heavily inspired by the object-based models found in modern operating systems, particularly the Windows Driver Model (WDM).
 
 The entire model is managed by a privileged Ring 1 service known as the **Dynamic Kernel Module System (DKMS)**. The DKMS is responsible for the entire lifecycle of a driver: loading, initialization, I/O dispatching, and unloading. It acts as the central I/O Manager for the operating system, serving as an intermediary between user-space applications, the kernel, and the drivers themselves.
 
-Drivers in AwooOS are not monolithic blocks of code linked into the kernel. Instead, each driver runs as an isolated, sandboxed process in a specific privilege Ring (typically Ring 2 for Kernel-Mode Drivers or Ring 3 for User-Mode Drivers). This process-based model provides significant stability and security advantages, as a fault within a single driver process will not directly crash the DKMS or the kernel. Communication between the DKMS and driver processes is performed exclusively through the kernel's IPC `signal` mechanism.
+Drivers in AxisOS are not monolithic blocks of code linked into the kernel. Instead, each driver runs as an isolated, sandboxed process in a specific privilege Ring (typically Ring 2 for Kernel-Mode Drivers or Ring 3 for User-Mode Drivers). This process-based model provides significant stability and security advantages, as a fault within a single driver process will not directly crash the DKMS or the kernel. Communication between the DKMS and driver processes is performed exclusively through the kernel's IPC `signal` mechanism.
 
 The ADM defines two primary modes of driver operation:
 

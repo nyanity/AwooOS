@@ -236,7 +236,7 @@ function kernel.panic(sReason, coFaulting)
   -- HEADER
   -- =================================================================
   print_line(" ")
-  print_line(":( A fatal error has occurred and AwooOS has been shut down.", 0xFFFFFF)
+  print_line(":( A fatal error has occurred and AxisOS has been shut down.", 0xFFFFFF)
   print_line("   to prevent damage to your system.", 0xFFFFFF)
   y = y + 1
   print_line("[ KERNEL PANIC ]", 0xFF5555)
@@ -327,8 +327,8 @@ end
 ------------------------------------------------
 
 __logger_init()
-kprint("info", "AwooOS Kernel v0.21B25YM11 starting...")
-kprint("info", "Copyright (C) 2025 Awoo woo woo woof")
+kprint("info", "AxisOS (XKA v0.3) starting...")
+kprint("info", "Copyright (C) 2025 Axis OS + Xen XKA")
 kprint("none", "")
 kprint("info", "Initializing memory manager", string.format("%d KB RAM available", math.floor(raw_computer.totalMemory()/1024)))
 kprint("ok", "Initializing IRQL Controller", "Base=PASSIVE_LEVEL")

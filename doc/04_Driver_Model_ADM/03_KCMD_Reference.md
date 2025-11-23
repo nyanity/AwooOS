@@ -60,7 +60,7 @@ local oKMD = require("kmd_api")
 local tDKStructs = require("shared_structs")
 
 g_tDriverInfo = {
-  sDriverName = "AwooFlux",
+  sDriverName = "AxisFlux",
   sDriverType = tDKStructs.DRIVER_TYPE_CMD, -- Critical: Declares KCMD mode
   nLoadPriority = 300,
   sVersion = "1.0.0",
@@ -79,7 +79,7 @@ In `DriverEntry`, the KCMD deviates from the standard KMD pattern. Instead of ma
 
 ```lua
 function DriverEntry(pDriverObject)
-  oKMD.DkPrint("AwooFlux: Initializing instance.")
+  oKMD.DkPrint("AxisFlux: Initializing instance.")
   
   -- 1. Setup Dispatch Table (Standard KMD logic)
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_CREATE] = fFluxDispatchCreate
@@ -92,7 +92,7 @@ function DriverEntry(pDriverObject)
   local nStatus, pDeviceObj = oKMD.DkCreateComponentDevice(pDriverObject, "flux")
 
   if nStatus ~= tStatus.STATUS_SUCCESS then 
-    oKMD.DkPrint("AwooFlux: Failed to create auto-device.")
+    oKMD.DkPrint("AxisFlux: Failed to create auto-device.")
     return nStatus 
   end
   g_pDeviceObject = pDeviceObj
@@ -103,7 +103,7 @@ function DriverEntry(pDriverObject)
   local nProxyStatus, oProxy = oKMD.DkGetHardwareProxy(sMyAddress)
   
   if nProxyStatus ~= tStatus.STATUS_SUCCESS then
-    oKMD.DkPrint("AwooFlux: Failed to bind to hardware at " .. tostring(sMyAddress))
+    oKMD.DkPrint("AxisFlux: Failed to bind to hardware at " .. tostring(sMyAddress))
     return nProxyStatus
   end
   
@@ -111,7 +111,7 @@ function DriverEntry(pDriverObject)
   g_pDeviceObject.pDeviceExtension.oProxy = oProxy
   g_pDeviceObject.pDeviceExtension.sAddress = sMyAddress
   
-  oKMD.DkPrint("AwooFlux: Online for " .. sMyAddress:sub(1,8))
+  oKMD.DkPrint("AxisFlux: Online for " .. sMyAddress:sub(1,8))
   return tStatus.STATUS_SUCCESS
 end
 ```

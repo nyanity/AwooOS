@@ -476,7 +476,7 @@ elseif sSignalName == "load_driver_path_request" then
 
   elseif sSignalName == "os_event" and p1 == "key_down" then
       for _, pDriver in pairs(g_tDriverRegistry) do
-          if pDriver.tDriverInfo.sDriverName == "AwooTTY" then
+          if pDriver.tDriverInfo.sDriverName == "AxisTTY" then
               syscall("signal_send", pDriver.nDriverPid, "hardware_interrupt", "key_down", p2, p3, p4)
           end
       end

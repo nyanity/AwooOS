@@ -190,7 +190,7 @@ This function automates the naming convention for drivers that handle multiple h
 
 ### 5.1 A Kernel-Mode "Null" Driver
 
-We will create a `/dev/null` device. This device will successfully accept all write operations but discard the data. All read operations will immediately return an end-of-file status. This is a classic "hello world" for driver development. Our objective is to create a `/dev/null` device. This is a standard virtual device in UNIX-like systems that serves two purposes: it discards all data written to it, and it immediately returns an end-of-file (EOF) condition on any attempt to read from it. This makes it an ideal "hello world" project for driver development, as it touches upon the core concepts of the AwooOS Driver Model (ADM) without requiring any actual hardware interaction.
+We will create a `/dev/null` device. This device will successfully accept all write operations but discard the data. All read operations will immediately return an end-of-file status. This is a classic "hello world" for driver development. Our objective is to create a `/dev/null` device. This is a standard virtual device in UNIX-like systems that serves two purposes: it discards all data written to it, and it immediately returns an end-of-file (EOF) condition on any attempt to read from it. This makes it an ideal "hello world" project for driver development, as it touches upon the core concepts of the AxisOS Driver Model (ADM) without requiring any actual hardware interaction.
 
 #### Step 1: The Basic Driver Structure and Dependencies
 
@@ -225,7 +225,7 @@ We will add this table to our file:
 
 -- Define the driver's metadata for DKMS.
 g_tDriverInfo = {
-  sDriverName = "AwooNull",
+  sDriverName = "AxisNull",
   sDriverType = tDKStructs.DRIVER_TYPE_KMD,
   nLoadPriority = 900, -- Very low priority, not essential.
   sVersion = "1.0.0",
@@ -304,7 +304,7 @@ local function fNullDispatchRead(pDeviceObject, pIrp) end
 -- DRIVER ENTRY & EXIT
 -------------------------------------------------
 function DriverEntry(pDriverObject)
-  oKMD.DkPrint("AwooNull DriverEntry starting.")
+  oKMD.DkPrint("AxisNull DriverEntry starting.")
   
   -- 2. Populate the dispatch table.
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_CREATE] = fNullDispatchCreate
@@ -332,7 +332,7 @@ function DriverEntry(pDriverObject)
     return nStatus
   end
   
-  oKMD.DkPrint("AwooNull DriverEntry completed successfully.")
+  oKMD.DkPrint("AxisNull DriverEntry completed successfully.")
   return tStatus.STATUS_SUCCESS
 end
 
@@ -402,11 +402,11 @@ function DriverEntry(pDriverObject)
 end
 
 function DriverUnload(pDriverObject)
-  oKMD.DkPrint("AwooNull DriverUnload starting.")
+  oKMD.DkPrint("AxisNull DriverUnload starting.")
   -- Cleanup in reverse order of creation.
   oKMD.DkDeleteSymbolicLink("/dev/null")
   oKMD.DkDeleteDevice(g_pDeviceObject)
-  oKMD.DkPrint("AwooNull DriverUnload completed.")
+  oKMD.DkPrint("AxisNull DriverUnload completed.")
   return tStatus.STATUS_SUCCESS
 end
 
@@ -426,7 +426,7 @@ local tDKStructs = require("shared_structs")
 
 -- 1. Define the driver's metadata for DKMS.
 g_tDriverInfo = {
-  sDriverName = "AwooNull",
+  sDriverName = "AxisNull",
   sDriverType = tDKStructs.DRIVER_TYPE_KMD,
   nLoadPriority = 900, -- Very low priority, not essential.
   sVersion = "1.0.0",
@@ -472,7 +472,7 @@ end
 -------------------------------------------------
 
 function DriverEntry(pDriverObject)
-  oKMD.DkPrint("AwooNull DriverEntry starting.")
+  oKMD.DkPrint("AxisNull DriverEntry starting.")
   
   -- 2. Populate the dispatch table.
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_CREATE] = fNullDispatchCreate
@@ -497,16 +497,16 @@ function DriverEntry(pDriverObject)
     return nStatus
   end
   
-  oKMD.DkPrint("AwooNull DriverEntry completed successfully.")
+  oKMD.DkPrint("AxisNull DriverEntry completed successfully.")
   return tStatus.STATUS_SUCCESS
 end
 
 function DriverUnload(pDriverObject)
-  oKMD.DkPrint("AwooNull DriverUnload starting.")
+  oKMD.DkPrint("AxisNull DriverUnload starting.")
   -- Cleanup in reverse order of creation.
   oKMD.DkDeleteSymbolicLink("/dev/null")
   oKMD.DkDeleteDevice(g_pDeviceObject)
-  oKMD.DkPrint("AwooNull DriverUnload completed.")
+  oKMD.DkPrint("AxisNull DriverUnload completed.")
   return tStatus.STATUS_SUCCESS
 end
 

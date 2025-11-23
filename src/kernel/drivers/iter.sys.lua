@@ -10,7 +10,7 @@ local oKMD = require("kmd_api")
 local tDKStructs = require("shared_structs")
 
 g_tDriverInfo = {
-  sDriverName = "AwooITER",
+  sDriverName = "AxisITER",
   sDriverType = tDKStructs.DRIVER_TYPE_CMD,
   nLoadPriority = 300,
   sVersion = "1.0.0-rc1",
@@ -67,7 +67,7 @@ end
 -------------------------------------------------
 
 function DriverEntry(pDriverObject)
-  oKMD.DkPrint("AwooITER: Initializing Component Mode Driver.")
+  oKMD.DkPrint("AxisITER: Initializing Component Mode Driver.")
   
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_CREATE] = fIterDispatchCreate
   pDriverObject.tDispatch[tDKStructs.IRP_MJ_CLOSE] = fIterDispatchClose
@@ -95,7 +95,7 @@ function DriverEntry(pDriverObject)
   
   g_pDeviceObject.pDeviceExtension.oIterProxy = oProxy
   
-  oKMD.DkPrint("AwooITER: Online.")
+  oKMD.DkPrint("AxisITER: Online.")
   raw_computer.pullSignal(3)
   return tStatus.STATUS_SUCCESS
 end
