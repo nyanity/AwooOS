@@ -331,7 +331,7 @@
 
             <div class="installer-wrapper" id="installerBox">
                 <div class="cmd-box" id="cmdBox" onclick="copyCmd()">
-                    <span class="cmd-text">wget https://raw.githubusercontent.com/nyanity/AxisOS/main/install.lua</span>
+                    <span class="cmd-text">wget https://raw.githubusercontent.com/nyanity/AxisOS/main/install/installer.lua</span>
                     <span class="copy-hint" id="copyHint">CLICK TO COPY</span>
                 </div>
             </div>
@@ -538,7 +538,7 @@
 
         // --- DEPLOYMENT BUILDER ---
         const repoBase = "https://raw.githubusercontent.com/Axis-OC/axis-os/main/src/kernel";
-        const biosUrl = "https://raw.githubusercontent.com/Axis-OC/axis-os/main/src/bios/boot.lua";
+        const biosUrl = "https://raw.githubusercontent.com/Axis-OC/axis-os/main/eeprom/boot.lua";
         const fileManifest = [
             "kernel.lua", "bin/init.lua", "bin/sh.lua", "lib/filesystem.lua", "lib/pipeline_manager.lua", "lib/syscall.lua",
             "drivers/tty.sys.lua", "drivers/keyboard.sys.lua", "drivers/gpu.sys.lua", "drivers/screen.sys.lua", "drivers/ringfs.sys.lua",
