@@ -7,7 +7,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;700&amp;family=VT323&amp;display=swap" rel="stylesheet">
+    <!-- Fonts Load -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&family=VT323&display=swap" rel="stylesheet">
 
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://axis-oc.github.io/axis-os/">
@@ -108,10 +109,15 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html { scroll-behavior: smooth; }
 
+        button, input, textarea, select {
+            font-family: inherit;
+        }
+
         body {
             background-color: var(--bg-color);
             color: var(--text-primary);
-            font-family: var(--font-sans);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif; 
+            font-family: var(--font-sans); 
             line-height: 1.6;
             overflow-x: hidden;
             transition: background-color 0.6s ease, color 0.6s ease;
