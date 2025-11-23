@@ -292,7 +292,7 @@
                         <a onclick="scrollToSection('architecture', 'Navigating to Core...')">Core</a>
                         <a onclick="scrollToSection('deploy', 'Navigating to Deployment...')">Deploy</a>
                         <a href="docs.html">Docs</a>
-                        <a href="https://github.com/nyanity/AxisOS" target="_blank">GitHub</a>
+                        <a href="https://github.com/Axis-OC/axis-os" target="_blank">GitHub</a>
                     </div>
                     <select id="themeSelector" class="theme-select" onchange="setTheme(this.value)">
                         <option value="xen">XEN // Default</option>
@@ -331,7 +331,7 @@
 
             <div class="installer-wrapper" id="installerBox">
                 <div class="cmd-box" id="cmdBox" onclick="copyCmd()">
-                    <span class="cmd-text">wget https://raw.githubusercontent.com/nyanity/AxisOS/main/install/installer.lua</span>
+                    <span class="cmd-text">wget https://raw.githubusercontent.com/Axis-OC/axis-os/main/install/installer.lua</span>
                     <span class="copy-hint" id="copyHint">CLICK TO COPY</span>
                 </div>
             </div>
@@ -566,7 +566,7 @@
         const installerBox = document.getElementById('installerBox');
         const cmdBox = document.getElementById('cmdBox');
         const copyHint = document.getElementById('copyHint');
-        const cmdText = "wget https://raw.githubusercontent.com/nyanity/AxisOS/main/install.lua";
+        const cmdText = "wget https://raw.githubusercontent.com/Axis-OC/axis-os/main/install/installer.lua";
         
         // Исправленный обработчик клика
         if (installBtn) {
