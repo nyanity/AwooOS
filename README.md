@@ -4,7 +4,7 @@
 
 # Axis OS
 
-![Version](https://img.shields.io/badge/version-0.21--Xen-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-OpenComputers-orange)
+![Version](https://img.shields.io/badge/version-0.3--Xen-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-OpenComputers-orange)
 
 | Feature | Specification |
 | :--- | :--- |
