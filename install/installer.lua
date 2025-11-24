@@ -1,9 +1,6 @@
 --
 -- installer.lua
--- AxisOS Installer // Arch-itect Edition v2.6
--- "I use AxisOS, by the way."
 --
-
 local component = require("component")
 local event = require("event")
 local term = require("term")
@@ -13,84 +10,152 @@ local unicode = require("unicode")
 local gpu = component.gpu
 local internet = component.internet
 
--- [[ 0. CONFIGURATION & CONSTANTS ]] --
+local data_card = component.isAvailable("data") and component.data or nil
 
-local DEBUG_MODE = false 
-local REPO_OWNER = "nyanity"
-local REPO_NAME = "AxisOS"
+-- === CONFIGURATION ===
+local REPO_OWNER = "Axis-OC"
+local REPO_NAME = "axis-os"
 local REPO_BRANCH = "main"
+local RAW_ROOT = "https://raw.githubusercontent.com/" .. REPO_OWNER .. "/" .. REPO_NAME .. "/" .. REPO_BRANCH
 
--- Point API directly to packages folder
-local API_BASE = string.format("https://api.github.com/repos/%s/%s/contents/src/packages", REPO_OWNER, REPO_NAME)
-local RAW_BASE = string.format("https://raw.githubusercontent.com/%s/%s/%s", REPO_OWNER, REPO_NAME, REPO_BRANCH)
+-- MANIFEST
+local CORE_MANIFEST = {
+    "kernel.lua",
+    "bin/init.lua",
+    "bin/sh.lua",
+    "lib/filesystem.lua",
+    "lib/pipeline_manager.lua",
+    "lib/syscall.lua",
+    "lib/errcheck.lua",
+    "lib/ob_manager.lua",
+    "lib/thread.lua",
+    "drivers/tty.sys.lua",
+    "drivers/screen.sys.lua",
+    "drivers/ringfs.sys.lua",
+    "drivers/keyboard.sys.lua",
+    "drivers/internet.sys.lua",
+    "drivers/gpu.sys.lua",
+    "drivers/filesystem.sys.lua",
+    "drivers/eeprom.sys.lua",
+    "drivers/computer.sys.lua",
+    "system/dkms.lua",
+    "system/driverdispatch.lua",
+    "system/driverhost.lua",
+    "system/lib/dk/shared_structs.lua",
+    "system/lib/dk/kmd_api.lua",
+    "system/lib/dk/umd_api.lua",
+    "system/lib/dk/common_api.lua",
+    "system/lib/dk/spinlock.lua",
+    "sys/security/dkms_sec.lua",
+    "usr/commands/cat.lua",
+    "usr/commands/chmod.lua",
+    "usr/commands/clear.lua",
+    "usr/commands/echo.lua",
+    "usr/commands/insmod.lua",
+    "usr/commands/logread.lua",
+    "usr/commands/ls.lua",
+    "usr/commands/pkgman.lua",
+    "usr/commands/reboot.lua",
+    "usr/commands/shutdown.lua",
+    "usr/commands/su.lua",
+    "usr/commands/wget.lua",
+    "etc/perms.lua",
+    "etc/autoload.lua",
+    "etc/sys.cfg"
+}
 
--- Colors (Theme: Deep Space / Nord)
-local C_BG       = 0x1E1E2E 
-local C_PANEL    = 0x252535 
-local C_TEXT     = 0xCDD6F4 
-local C_ACCENT   = 0x89B4FA 
-local C_ACCENT_T = 0x1E1E2E 
-local C_DIM      = 0x6C7086 
-local C_SUCCESS  = 0xA6E3A1 
-local C_WARN     = 0xF9E2AF 
-local C_ERR      = 0xF38BA8 
-local C_HEADER   = 0x11111B 
+-- === COLORS ===
+local C_BG       = 0x050505 
+local C_PANEL    = 0x111111 
+local C_TEXT     = 0xE0E0E0 
+local C_ACCENT   = 0x00BCD4 
+local C_ACCENT_T = 0x000000 
+local C_DIM      = 0x555555 
+local C_ERR      = 0xFF5555 
+local C_WARN     = 0xFF9E42 
+local C_SUCCESS  = 0x55FF55
+local C_HEADER   = 0x002228 
 
--- Box Drawing
-local B = { H="─", V="│", TL="┌", TR="┐", BL="└", BR="┘", VL="┤", VR="├", TT="┬", TB="┴", X="┼", D="═" }
+local B = { H="─", V="│", TL="┌", TR="┐", BL="└", BR="┘" }
 
--- [[ 1. UTILITIES ]] --
-
-if not internet and not DEBUG_MODE then error("Internet Card required.") end
-
-local function parse_json_list(sJson)
-    -- CRITICAL FIX: Remove newlines so pattern matching works across lines
-    sJson = sJson:gsub("[\r\n]", " ")
-    
-    local tList = {}
-    for sItem in sJson:gmatch("{.-}") do
-        local sName = sItem:match('"name"%s*:%s*"(.-)"')
-        local sType = sItem:match('"type"%s*:%s*"(.-)"')
-        
-        -- Grab any file, allowing for .lua, .c.lua, etc.
-        if sName and sType == "file" then 
-            table.insert(tList, sName) 
-        end
-    end
-    return tList
-end
-
-local function http_get(sUrl)
-    if DEBUG_MODE then return "[]" end
-    local h, err = internet.request(sUrl, nil, {["User-Agent"]="AxisInstaller/2.6"})
-    if not h then return nil, err end
-    local buf = ""
-    for chunk in h do buf = buf .. chunk end
-    return buf
-end
-
-local function format_size(n)
-    if not n then return "0B" end
-    if n >= 10^9 then return string.format("%.1fG", n/10^9)
-    elseif n >= 10^6 then return string.format("%.1fM", n/10^6)
-    elseif n >= 10^3 then return string.format("%.1fK", n/10^3)
-    else return string.format("%dB", n) end
-end
-
-local function minify_code(code)
-    code = code:gsub("%-%-%[%[.-%]%]", "")
-    code = code:gsub("%-%-[^\n]*", "")
-    local lines = {}
-    for line in code:gmatch("[^\r\n]+") do
-        local trim = line:match("^%s*(.-)%s*$")
-        if #trim > 0 then table.insert(lines, trim) end
-    end
-    return table.concat(lines, "\n")
-end
-
--- [[ 2. UI FRAMEWORK ]] --
-
+if not internet then error("Internet Card required.") end
 local W, H = gpu.getResolution()
+
+-- === UTILS ===
+
+local function get_parent_dir(path)
+    return path:match("^(.*)/") or ""
+end
+
+local function http_get(url)
+    local max_retries = 3
+    local last_err = ""
+    
+    for attempt = 1, max_retries do
+        local headers = {
+            ["User-Agent"] = "curl/7.68.0",
+            ["Cache-Control"] = "no-cache",
+            ["Connection"] = "close"
+        }
+        local cleanUrl = url .. "?t=" .. math.floor(os.time()) .. "_" .. attempt
+        
+        local handle, reason = internet.request(cleanUrl, nil, headers)
+        
+        if not handle then
+            last_err = "Req Fail: " .. tostring(reason)
+        else
+            local iters = 0
+            while not handle.finishConnect() and iters < 50 do
+                os.sleep(0.1)
+                iters = iters + 1
+            end
+            
+            local code, msg = handle.response()
+            if code and code ~= 200 then
+                handle.close()
+                last_err = "HTTP " .. tostring(code)
+            else
+                local buffer = {}
+                while true do
+                    local chunk, rerr = handle.read(math.huge)
+                    if chunk and #chunk > 0 then
+                        table.insert(buffer, chunk)
+                    elseif not chunk then
+                        break
+                    end
+                end
+                handle.close()
+                
+                local data = table.concat(buffer)
+                
+                if #data == 0 then
+                    last_err = "Empty Response"
+                elseif data:match("<!DOCTYPE html>") or data:match("<html") then
+                    last_err = "Got HTML Garbage"
+                else
+                    -- (Magic bytes: 0x1F 0x8B)
+                    if data:byte(1) == 31 and data:byte(2) == 139 then
+                        if data_card then
+                            local status, inflated = pcall(data_card.inflate, data, 50000)
+                            if status then
+                                return inflated
+                            else
+                                last_err = "GZIP Inflate Fail"
+                            end
+                        else
+                            last_err = "GZIP received but NO Data Card!"
+                        end
+                    else
+                        return data
+                    end
+                end
+            end
+        end
+        if attempt < max_retries then os.sleep(0.5) end
+    end
+    
+    return nil, last_err
+end
 
 local function clear()
     gpu.setBackground(C_BG); gpu.setForeground(C_TEXT); gpu.fill(1, 1, W, H, " ")
@@ -116,7 +181,7 @@ end
 local function draw_header(subtitle)
     gpu.setBackground(C_HEADER); gpu.setForeground(C_ACCENT)
     gpu.fill(1, 1, W, 1, " ")
-    gpu.set(2, 1, "AxisOS Installer" .. (subtitle and (" :: " .. subtitle) or ""))
+    gpu.set(2, 1, "Axis OS Installer" .. (subtitle and (" :: " .. subtitle) or ""))
     local time = os.date("%H:%M"); gpu.set(W - #time - 1, 1, time)
     gpu.setBackground(C_BG)
 end
@@ -204,31 +269,36 @@ local function draw_prog(pct, msg)
     gpu.setBackground(C_BG)
 end
 
--- [[ 3. STATE & LOGIC ]] --
+local function format_size(n)
+    if not n then return "0B" end
+    if n >= 10^9 then return string.format("%.1fG", n/10^9)
+    elseif n >= 10^6 then return string.format("%.1fM", n/10^6)
+    elseif n >= 10^3 then return string.format("%.1fK", n/10^3)
+    else return string.format("%dB", math.floor(n)) end
+end
 
+-- === GLOBAL STATE ===
 local State = {
-    Hostname = "abox",
+    Hostname = "axis-node",
     RootPass = "toor",
     Users = {},
     Mounts = {},
     Packages = {},
-    RepoCache = {}
+    RepoCache = {} 
 }
 
--- [[ 4. DASHBOARD WIDGETS ]] --
-
+-- === DASHBOARD ===
 local function draw_dashboard()
     local col_w = 32
     local lx, ly = 3, 3
     
     gpu.setForeground(C_ACCENT)
-    gpu.set(lx, ly+0, "   /\\   AxisOS")
-    gpu.set(lx, ly+1, "  /  \\   v2.6")
-    gpu.set(lx, ly+2, " ( /\\ )  Installer")
-    gpu.set(lx, ly+3, "  \\__/")
+    gpu.set(lx, ly+0, "   [ + ]   Axis OS")
+    gpu.set(lx, ly+1, "   | | |   v0.3")
+    gpu.set(lx, ly+2, "   [___]   Xen XK Arch")
     
-    ly = ly + 5
-    draw_box(lx, ly, col_w, 10, "DETECTED HARDWARE", C_DIM)
+    ly = ly + 4
+    draw_box(lx, ly, col_w, 10, "HARDWARE PROBE", C_DIM)
     
     local hw_y = ly + 1
     local function print_hw(label, val)
@@ -239,26 +309,17 @@ local function draw_dashboard()
     
     gpu.setForeground(C_TEXT)
     print_hw("CPU", component.isAvailable("cpu") and "Zilog Z80" or "Unknown")
-    
     local total_ram = computer.totalMemory()
-    local free_ram = computer.freeMemory()
     print_hw("Memory", format_size(total_ram))
-    
-    local gpu_comp = component.gpu
-    local rw, rh = gpu_comp.getResolution()
-    print_hw("Display", rw .. "x" .. rh)
-    
-    local eeprom_size = component.eeprom.getSize()
-    print_hw("EEPROM", format_size(eeprom_size))
+    print_hw("Display", W .. "x" .. H)
     print_hw("Network", internet and "Online" or "Offline")
     
-    hw_y = hw_y + 1
-    local bar_w = col_w - 4
-    local used_pct = (total_ram - free_ram) / total_ram
-    gpu.setBackground(C_DIM); gpu.fill(lx+2, hw_y, bar_w, 1, " ")
-    gpu.setBackground(used_pct > 0.8 and C_ERR or C_ACCENT)
-    gpu.fill(lx+2, hw_y, math.ceil(bar_w * used_pct), 1, " ")
-    gpu.setBackground(C_BG)
+    -- === Data Card Warning ===
+    if not data_card then
+        gpu.setForeground(C_ERR)
+        gpu.set(lx+2, hw_y+1, "! NO DATA CARD !")
+        gpu.set(lx+2, hw_y+2, "GZIP Fix Disabled")
+    end
     
     ly = ly + 11
     gpu.setForeground(C_DIM)
@@ -269,8 +330,7 @@ local function draw_dashboard()
     gpu.set(lx, ly+3, "ENTER      : Select")
 end
 
--- [[ 5. MODULE: PARTITION MANAGER (AxisParted) ]] --
-
+-- === PARTITION MANAGER ===
 local function scan_drives()
     local drives = {}
     local tmp = computer.tmpAddress()
@@ -279,13 +339,13 @@ local function scan_drives()
         if addr ~= tmp and p.getLabel() ~= "tmpfs" then
             table.insert(drives, {
                 uuid = addr,
-                label = p.getLabel() or "UNLABELED",
+                label = p.getLabel() or "HDD",
                 total_size = p.spaceTotal(),
                 ro = p.isReadOnly()
             })
         end
     end
-    table.insert(drives, { uuid = "virtual", label = "VIRTUAL (RAM/KERNEL)", total_size = 0, ro = false })
+    table.insert(drives, { uuid = "virtual", label = "VIRTUAL (RAM)", total_size = 0, ro = false })
     return drives
 end
 
@@ -322,28 +382,51 @@ local function auto_partition_drive(drive)
     draw_box(bx, by, bw, bh, "AUTO PARTITIONING", C_ACCENT)
     gpu.set(bx+2, by+2, "Calculating optimal layout...")
     
-    -- Remove existing mounts for this drive
     local new_mounts = {}
-    for _, m in ipairs(State.Mounts) do
-        if m.uuid ~= drive.uuid then table.insert(new_mounts, m) end
-    end
+    for _, m in ipairs(State.Mounts) do if m.uuid ~= drive.uuid then table.insert(new_mounts, m) end end
     State.Mounts = new_mounts
     
     os.sleep(0.5)
     
     local total = drive.total_size
-    local swap_sz = math.min(512 * 1024, math.floor(total * 0.1))
-    local log_sz  = math.min(256 * 1024, math.floor(total * 0.05))
-    local home_sz = math.min(1024 * 1024, math.floor(total * 0.3))
+    local swap_sz = 1024 * 1024 -- 1MB Swap
+    local log_sz  = 3000        -- Tiny log
+    local home_sz = 209715      -- ~200KB Home
     
-    if total < 1024 * 1024 then
-         table.insert(State.Mounts, { uuid = drive.uuid, mount = "/", type = "rootfs", options = "rw", label = drive.label })
+    if total < 2 * 1024 * 1024 then
+         swap_sz = math.floor(total * 0.1)
+         home_sz = math.floor(total * 0.2)
+    end
+    
+    if total < 512 * 1024 then
+         -- Single Partition
+         table.insert(State.Mounts, { 
+             uuid = drive.uuid, mount = "/", type = "rootfs", path = "/",
+             options = "rw", size_limit = 0, label = drive.label 
+         })
          gpu.set(bx+2, by+4, "Layout: Single Root Partition")
     else
-         table.insert(State.Mounts, { uuid = drive.uuid, mount = "none", type = "swap", options = "size="..swap_sz, size_limit = swap_sz, label = drive.label })
-         table.insert(State.Mounts, { uuid = drive.uuid, mount = "/var/log", type = "ringfs", options = "rw,size="..log_sz, size_limit = log_sz, label = drive.label })
-         table.insert(State.Mounts, { uuid = drive.uuid, mount = "/home", type = "homefs", options = "rw,size="..home_sz, size_limit = home_sz, label = drive.label })
-         table.insert(State.Mounts, { uuid = drive.uuid, mount = "/", type = "rootfs", options = "rw", label = drive.label })
+         -- Standard Layout
+         -- 1. ROOT
+         table.insert(State.Mounts, { 
+             uuid = drive.uuid, mount = "/", type = "rootfs", path = "/",
+             options = "rw", size_limit = 0, label = drive.label 
+         })
+         -- 2. HOME
+         table.insert(State.Mounts, { 
+             uuid = drive.uuid, mount = "/home", type = "homefs", path = "/home",
+             options = "rw", size_limit = home_sz, label = drive.label 
+         })
+         -- 3. SWAP
+         table.insert(State.Mounts, { 
+             uuid = drive.uuid, mount = "none", type = "swap", path = "/swapfile",
+             options = "rw", size_limit = swap_sz, label = drive.label 
+         })
+         -- 4. LOG
+         table.insert(State.Mounts, { 
+             uuid = drive.uuid, mount = "/var/log", type = "ringfs", path = "/log",
+             options = "rw", size_limit = log_sz, label = drive.label 
+         })
          
          gpu.set(bx+2, by+4, "Layout: Root, Home, Swap, Log")
     end
@@ -360,7 +443,6 @@ end
 
 local function manage_drive_partitions(drive)
     local selected = 1
-    
     local function next_type(curr)
         if curr == "rootfs" then return "homefs"
         elseif curr == "homefs" then return "ringfs"
@@ -381,11 +463,9 @@ local function manage_drive_partitions(drive)
         
         clear()
         draw_header("Editing: " .. drive.label)
-        
         gpu.setForeground(C_ACCENT)
         gpu.set(2, 3, "DISK UUID: " .. drive.uuid:sub(1,8))
         gpu.set(2, 4, string.format("CAPACITY : %s Total | %s Free", format_size(drive.total_size), format_size(free_space)))
-            
         gpu.setForeground(C_DIM)
         gpu.set(2, 6, " ID   MOUNT POINT     TYPE          OPTS")
         gpu.set(2, 7, string.rep(B.H, W-4))
@@ -394,66 +474,67 @@ local function manage_drive_partitions(drive)
         for i, entry in ipairs(drive_mounts) do
             if i == selected then gpu.setBackground(C_ACCENT); gpu.setForeground(C_ACCENT_T)
             else gpu.setBackground(C_BG); gpu.setForeground(C_TEXT) end
-            
             local m = entry.data
-            local size_str = m.size_limit and ("sz="..format_size(m.size_limit)) or "FULL"
+            local size_str = (m.type == "rootfs") and "AUTO" or ("sz="..format_size(m.size_limit))
             local line = string.format(" %-4d %-15s %-13s %-20s", i, m.mount, "<"..m.type..">", size_str)
             gpu.set(2, row_y, line .. string.rep(" ", W - #line - 2))
             row_y = row_y + 1
         end
         gpu.setBackground(C_BG)
-        
         gpu.setForeground(C_ACCENT)
         gpu.set(2, row_y + 2, "[A]dd   [D]el   [T]oggle Type   [W]ipe & Auto   [B]ack")
-        status_bar("A: Add | D: Del | T: Type | W: Auto-Partition (Lazy Mode)")
+        status_bar("A: Add | D: Del | T: Type | W: Auto-Partition")
         
         local _, _, _, code = event.pull("key_down")
         if code == 200 and selected > 1 then selected = selected - 1 
         elseif code == 208 and selected < #drive_mounts then selected = selected + 1 
-        elseif code == 30 then -- A (Add)
-            if drive.uuid ~= "virtual" and free_space < 1024 then
-                status_bar("No space left on device!")
-                os.sleep(1)
-            else
+        elseif code == 30 then -- A
+            if drive.uuid ~= "virtual" and free_space < 1024 then status_bar("No space left!"); os.sleep(1) else
                 local suggestions = {"/", "/home", "/boot", "/var", "/var/log", "swap", "Custom..."}
                 local mp = dropdown_menu(10, row_y + 3, suggestions)
-                
                 if mp == "Custom..." then mp = input_box("Custom Mount Point", "/") end
                 
                 if mp then
+                    local ftype = "rootfs"
+                    local ipath = "/" -- internal path
                     local size = 0
-                    if drive.uuid ~= "virtual" then size = size_selector(free_space, free_space) end
-                    if size then
-                        local ftype = "rootfs"
-                        if mp:find("log") then ftype = "ringfs"
-                        elseif mp:find("swap") then ftype = "swap"; mp = "none"
-                        elseif mp:find("home") then ftype = "homefs" end
-                        
-                        local opts = "rw"
-                        if size > 0 then opts = opts .. ",size="..size end
+                    
+                    if mp == "/" then 
+                        ftype = "rootfs"; ipath = "/"
+                    elseif mp:find("swap") then 
+                        ftype = "swap"; mp = "none"; ipath = "/swapfile"
+                    elseif mp:find("log") then 
+                        ftype = "ringfs"; ipath = "/log"
+                    elseif mp:find("home") then 
+                        ftype = "homefs"; ipath = "/home"
+                    else
+                        ipath = mp
+                    end
+
+                    if ftype ~= "rootfs" and drive.uuid ~= "virtual" then
+                        size = size_selector(free_space, math.min(free_space, 512*1024))
+                    end
+
+                    if size or ftype == "rootfs" then
                         table.insert(State.Mounts, {
-                            uuid = drive.uuid, mount = mp, type = ftype,
-                            options = opts, size_limit = size, label = drive.label
+                            uuid = drive.uuid, mount = mp, type = ftype, path = ipath,
+                            options = "rw", size_limit = size or 0, label = drive.label
                         })
                     end
                 end
             end
-        elseif code == 32 then -- D (Delete)
+        elseif code == 32 then -- D
             if #drive_mounts > 0 then
                 table.remove(State.Mounts, drive_mounts[selected].idx)
                 if selected > 1 then selected = selected - 1 end
             end
-        elseif code == 20 then -- T (Toggle Type)
-            if #drive_mounts > 0 then
+        elseif code == 20 then -- T
+             if #drive_mounts > 0 then
                 local m = State.Mounts[drive_mounts[selected].idx]
                 m.type = next_type(m.type)
-            end
-        elseif code == 17 then -- W (Wipe/Auto)
-            if drive.uuid ~= "virtual" then
-                if confirm_dialog("Wipe & Auto-Partition?") then
-                    auto_partition_drive(drive)
-                end
-            end
+             end
+        elseif code == 17 then -- W
+            if drive.uuid ~= "virtual" and confirm_dialog("Wipe & Auto-Partition?") then auto_partition_drive(drive) end
         elseif code == 48 then return end
     end
 end
@@ -465,13 +546,11 @@ local function run_partition_manager()
         clear()
         draw_header("Disk Selection")
         center_text(3, ":: PHYSICAL STORAGE DEVICES ::", C_ACCENT)
-        
         local ty = 5
         gpu.setForeground(C_DIM)
         gpu.set(2, ty, "DEVICE LABEL          UUID (SHORT)    CAPACITY   SLICES")
         gpu.set(2, ty+1, string.rep(B.H, W-4))
         ty = ty + 2
-        
         for i, drv in ipairs(drives) do
             if i == sel then gpu.setBackground(C_ACCENT); gpu.setForeground(C_ACCENT_T) 
             else gpu.setForeground(C_TEXT) end
@@ -483,214 +562,449 @@ local function run_partition_manager()
             gpu.setBackground(C_BG)
             ty = ty + 1
         end
-        
         status_bar("ENTER: Select | B: Back")
         local _, _, _, code = event.pull("key_down")
         if code == 200 and sel > 1 then sel = sel - 1
         elseif code == 208 and sel < #drives then sel = sel + 1
         elseif code == 28 then manage_drive_partitions(drives[sel])
-        elseif code == 48 then if confirm_dialog("Return to menu?") then return end end
+        elseif code == 48 then return end
     end
 end
 
--- [[ 6. MODULE: PACKAGE SELECTOR ]] --
+-- === PACKAGE SELECTOR (FIXED DL) ===
 
-local PkgCategories = {
-    { name = "Drivers",    path = "drivers",    type = "sys.lua" },
-    { name = "Executable", path = "executable", type = "lua" },
-    { name = "Modules",    path = "modules",    type = "lua" },
-    { name = "Multilib",   path = "multilib",   type = "lua" }
-}
+local function collect_selected_packages(nodes, result_table)
+    if not nodes then return end
+    for _, item in ipairs(nodes) do
+        if item.type == "file" and item.selected then
+            table.insert(result_table, item)
+        elseif item.type == "tree" then
+            collect_selected_packages(item.items, result_table)
+        end
+    end
+end
 
 local function run_package_selector()
-    if #State.RepoCache == 0 then
+    if not State.RepoCache or #State.RepoCache == 0 then
         local bx, by = math.floor(W/2)-20, math.floor(H/2)-2
         gpu.fill(bx, by, 40, 5, " "); draw_box(bx, by, 40, 5, "SYNCING REPOS", C_ACCENT)
-        for i, cat in ipairs(PkgCategories) do
-            gpu.set(bx+2, by+2, "Fetching " .. cat.name .. "...")
-            local raw = http_get(string.format("%s/%s?ref=%s", API_BASE, cat.path, REPO_BRANCH))
-            if raw then
-                local list = parse_json_list(raw)
-                local items = {}
-                for _, f in ipairs(list) do 
-                    table.insert(items, {
-                        name=f, 
-                        path="src/packages/"..cat.path.."/"..f, 
-                        selected=false, 
-                        cat=cat.name
-                    }) 
+        gpu.set(bx+2, by+2, "Downloading package manifest...")
+        
+        local data, err = http_get(RAW_ROOT .. "/packages/PKGLIST.lua")
+        
+        if not data then
+            center_text(by+2, "DL Failed: " .. tostring(err), C_ERR)
+            State.RepoCache = {} 
+            os.sleep(2)
+        else
+            data = data:gsub("^%s+", ""):gsub("^\239\187\191", "")
+            
+            local func, syntax_err = load(data, "pkglist", "t", {})
+            if func then
+                local status, result = pcall(func)
+                if status and type(result) == "table" then
+                    State.RepoCache = result
+                else
+                    gpu.setForeground(C_ERR)
+                    center_text(by+2, "Invalid PKGLIST (Not a table)")
+                    State.RepoCache = {} 
+                    os.sleep(3)
                 end
-                table.insert(State.RepoCache, {name=cat.name, items=items})
+            else
+                center_text(by+2, "Syntax Error in PKGLIST", C_ERR)
+                State.RepoCache = {}
+                os.sleep(2)
             end
-            os.sleep(0.1)
         end
     end
     
-    local cat_idx, file_idx, active_pane = 1, 1, 1
+    local cat_idx = 1
+    local file_idx = 1
+    local active_pane = 1 
+    local folder_stack = {}
+    
+    local function get_current_list()
+        if #folder_stack > 0 then return folder_stack[#folder_stack].list end
+        if State.RepoCache[cat_idx] then return State.RepoCache[cat_idx].items end
+        return {}
+    end
+
     while true do
         clear()
-        draw_header("Pacstrap // Select Packages")
-        
+        draw_header("Axispkg // Select Packages")
         local pane_w = math.floor((W - 4) / 2)
         local pane_h = H - 6
         
+        -- LEFT PANE
         draw_box(2, 3, pane_w, pane_h + 2, "REPOSITORIES", active_pane==1 and C_ACCENT or C_DIM)
-        for i, cat in ipairs(State.RepoCache) do
-            if i == cat_idx then gpu.setBackground(active_pane==1 and C_ACCENT or C_PANEL); gpu.setForeground(C_ACCENT_T)
-            else gpu.setForeground(C_TEXT) end
-            gpu.set(3, 4+i, " " .. cat.name .. string.rep(" ", pane_w - #cat.name - 3))
-            gpu.setBackground(C_BG)
+        if #State.RepoCache == 0 then
+             gpu.set(3, 5, "No Repo Data.")
+        else
+            for i, cat in ipairs(State.RepoCache) do
+                if i == cat_idx then gpu.setBackground(active_pane==1 and C_ACCENT or C_PANEL); gpu.setForeground(C_ACCENT_T)
+                else gpu.setForeground(C_TEXT) end
+                gpu.set(3, 4+i, " " .. cat.name .. string.rep(" ", pane_w - #cat.name - 3))
+                gpu.setBackground(C_BG)
+            end
         end
         
-        draw_box(2 + pane_w, 3, pane_w, pane_h + 2, "PACKAGES", active_pane==2 and C_ACCENT or C_DIM)
-        local files = State.RepoCache[cat_idx].items
+        -- RIGHT PANE
+        local current_items = get_current_list() or {}
+        local display_list = {}
+        if #folder_stack > 0 then table.insert(display_list, { is_back = true, name = "[ .. ] Back" }) end
+        for _, itm in ipairs(current_items) do table.insert(display_list, itm) end
+        
+        local title_right = "PACKAGES"
+        if #folder_stack > 0 then title_right = folder_stack[#folder_stack].name end
+        
+        draw_box(2 + pane_w, 3, pane_w, pane_h + 2, title_right, active_pane==2 and C_ACCENT or C_DIM)
+        
         local limit = pane_h
         local offset = 0
         if file_idx > limit then offset = file_idx - limit end
+        
         for i=1, limit do
             local idx = i + offset
-            if idx > #files then break end
-            local f = files[idx]
+            if idx > #display_list then break end
+            local item = display_list[idx]
+            
             if idx == file_idx then gpu.setBackground(active_pane==2 and C_ACCENT or C_PANEL); gpu.setForeground(C_ACCENT_T)
             else gpu.setForeground(C_TEXT) end
-            local mark = f.selected and "[*]" or "[ ]"
-            local txt = string.format(" %s %s", mark, f.name)
-            gpu.set(3 + pane_w, 4+i, txt .. string.rep(" ", pane_w - #txt - 2))
+            
+            local txt = ""
+            if item.is_back then txt = " " .. item.name
+            elseif item.type == "tree" then txt = " > " .. item.name .. "/"
+            else 
+                local mark = item.selected and "[*]" or "[ ]"
+                txt = string.format(" %s %s", mark, item.name)
+            end
+            
+            gpu.set(3 + pane_w, 4+i, txt .. string.rep(" ", pane_w - unicode.len(txt) - 2))
+            
             gpu.setBackground(C_BG)
         end
         
-        status_bar("TAB: Switch | SPACE: Toggle | S: Save | B: Back")
+        status_bar("TAB: Switch | SPACE: Select | ENTER: Open Folder | S: Save")
+        
         local _, _, _, code = event.pull("key_down")
-        if code == 15 then active_pane = (active_pane == 1) and 2 or 1 
-        elseif code == 200 then 
-            if active_pane == 1 then if cat_idx > 1 then cat_idx=cat_idx-1; file_idx=1 end
-            else if file_idx > 1 then file_idx=file_idx-1 end end
-        elseif code == 208 then 
-            if active_pane == 1 then if cat_idx < #State.RepoCache then cat_idx=cat_idx+1; file_idx=1 end
-            else if file_idx < #files then file_idx=file_idx+1 end end
-        elseif code == 57 and active_pane == 2 then files[file_idx].selected = not files[file_idx].selected
-        elseif code == 31 then 
+        
+        if code == 15 then -- TAB
+            active_pane = (active_pane == 1) and 2 or 1
+            if active_pane == 1 then folder_stack = {} end
+        elseif code == 200 then -- UP
+            if active_pane == 1 then 
+                if cat_idx > 1 then cat_idx=cat_idx-1; file_idx=1; folder_stack={} end
+            else 
+                if file_idx > 1 then file_idx=file_idx-1 end 
+            end
+        elseif code == 208 then -- DOWN
+            if active_pane == 1 then 
+                if cat_idx < #State.RepoCache then cat_idx=cat_idx+1; file_idx=1; folder_stack={} end
+            else 
+                if file_idx < #display_list then file_idx=file_idx+1 end 
+            end
+        elseif code == 57 and active_pane == 2 then -- SPACE
+            local item = display_list[file_idx]
+            if item and not item.is_back and item.type == "file" then
+                item.selected = not item.selected
+            end
+        elseif code == 28 and active_pane == 2 then -- ENTER
+            local item = display_list[file_idx]
+            if item then
+                if item.is_back then
+                    table.remove(folder_stack)
+                    file_idx = 1
+                elseif item.type == "tree" then
+                    table.insert(folder_stack, { list = item.items, name = item.name })
+                    file_idx = 1
+                end
+            end
+        elseif code == 31 then -- S
             State.Packages = {}
             for _, cat in ipairs(State.RepoCache) do
-                for _, f in ipairs(cat.items) do if f.selected then table.insert(State.Packages, f) end end
+                collect_selected_packages(cat.items, State.Packages)
             end
             return
         elseif code == 48 then return end
     end
 end
 
--- [[ 7. INSTALLATION ]] --
+local install_log_buffer = {}
+local LOG_HEIGHT = H - 12
+
+local function draw_install_interface(target_label, target_uuid)
+    clear()
+    draw_header("System Deployment")
+    
+    draw_box(2, 3, W - 28, LOG_HEIGHT + 2, " ACTION LOG ", C_ACCENT)
+    
+    draw_box(W - 24, 3, 24, LOG_HEIGHT + 2, " SYSTEM STATS ", C_DIM)
+    
+    gpu.setForeground(C_ACCENT); gpu.set(W - 22, 5, "TARGET DRIVE:")
+    gpu.setForeground(C_TEXT);   gpu.set(W - 22, 6, target_label:sub(1,18))
+    gpu.setForeground(C_DIM);    gpu.set(W - 22, 7, target_uuid:sub(1,8).."...")
+    
+    gpu.setForeground(C_ACCENT); gpu.set(W - 22, 9, "ARCHITECTURE:")
+    gpu.setForeground(C_TEXT);   gpu.set(W - 22, 10, _OSVERSION or "Lua 666")
+    
+    gpu.setForeground(C_ACCENT); gpu.set(W - 22, 12, "MEMORY:")
+end
+
+local function update_stats()
+    local free = computer.freeMemory()
+    local total = computer.totalMemory()
+    local used_pct = math.floor(((total-free)/total)*100)
+    
+    gpu.setBackground(C_BG)
+    gpu.setForeground(C_TEXT)
+    gpu.set(W - 22, 13, string.format("%d%% Used", used_pct))
+    gpu.setForeground(C_DIM)
+    gpu.set(W - 22, 14, format_size(free) .. " free")
+    
+    gpu.setForeground(C_ACCENT)
+    gpu.set(W - 22, 16, "UPTIME:")
+    gpu.setForeground(C_TEXT)
+    gpu.set(W - 22, 17, string.format("%.1fs", computer.uptime()))
+end
+
+local function install_log(msg, status_col)
+    local time = os.date("%T")
+    local line = string.format("[%s] %s", time, msg)
+    
+    table.insert(install_log_buffer, {text=line, col=status_col or C_TEXT})
+    if #install_log_buffer > LOG_HEIGHT then table.remove(install_log_buffer, 1) end
+    
+    for i, log in ipairs(install_log_buffer) do
+        gpu.set(4, 3 + i, string.rep(" ", W - 32)) -- Clean line
+        gpu.setForeground(log.col)
+        gpu.set(4, 3 + i, log.text)
+    end
+end
+
+local function update_progress_detail(curr, total, filename, last_speed, last_size)
+    local pct = curr / total
+    local bar_w = W - 4
+    local by = H - 5
+    
+    gpu.setBackground(C_BG)
+    gpu.fill(2, by, W-2, 5, " ")
+    
+    gpu.setForeground(C_ACCENT)
+    gpu.set(2, by, "CURRENT: ")
+    gpu.setForeground(C_TEXT)
+    gpu.set(11, by, filename)
+    
+    if last_size then
+        local info = string.format("SZ: %s | SPD: %s/s", format_size(last_size), format_size(last_speed))
+        gpu.set(W - #info - 2, by, info)
+    end
+    
+    gpu.setForeground(C_DIM)
+    gpu.set(2, by+2, "[")
+    gpu.set(W-1, by+2, "]")
+    
+    local inner_w = W - 4
+    local fill_w = math.floor(inner_w * pct)
+    
+    gpu.setBackground(C_PANEL)
+    gpu.fill(3, by+2, inner_w, 1, " ")
+    
+    gpu.setBackground(C_ACCENT)
+    gpu.fill(3, by+2, fill_w, 1, " ")
+    
+    gpu.setBackground(C_BG); gpu.setForeground(C_TEXT)
+    local pct_str = math.floor(pct * 100) .. "%"
+    gpu.set(math.floor(W/2 - #pct_str/2), by+3, pct_str)
+end
 
 local function install_os()
+    if not data_card then
+        if not confirm_dialog("NO DATA CARD! DL MAY FAIL. CONT?") then return end
+    end
+
     local root_uuid = nil
     for _, m in ipairs(State.Mounts) do if m.mount == "/" then root_uuid = m.uuid end end
-    if not root_uuid then status_bar("Error: No Root Partition!"); os.sleep(2); return end
-    
-    clear(); draw_header("Installing AxisOS")
-    draw_prog(0.05, "Formatting Root...")
-    
-    -- 0. Set Label
-    local proxy = component.proxy(root_uuid)
-    proxy.setLabel("AxisOS")
-    
-    for _, f in ipairs(proxy.list("/")) do proxy.remove(f) end
-    
-    local dirs = {"/boot", "/bin", "/lib", "/etc", "/home", "/drivers", "/system", "/sys", "/usr", "/var/log", "/usr/commands", "/system/lib/dk", "/sys/security"}
-    for _, d in ipairs(dirs) do proxy.makeDirectory(d) end
-    
-    local manifest = {
-        { s="/kernel/kernel.lua", d="/boot/kernel.lua" },
-        { s="/kernel/bin/init.lua", d="/bin/init.lua" },
-        { s="/kernel/bin/sh.lua", d="/bin/sh.lua" },
-        { s="/kernel/lib/errcheck.lua", d="/lib/errcheck.lua" },
-        { s="/kernel/lib/filesystem.lua", d="/lib/filesystem.lua" },
-        { s="/kernel/lib/pipeline_manager.lua", d="/lib/pipeline_manager.lua" },
-        { s="/kernel/lib/syscall.lua", d="/lib/syscall.lua" },
-        { s="/kernel/system/dkms.lua", d="/system/dkms.lua" },
-        { s="/kernel/system/driverdispatch.lua", d="/system/driverdispatch.lua" },
-        { s="/kernel/system/lib/dk/shared_structs.lua", d="/system/lib/dk/shared_structs.lua" },
-        { s="/kernel/system/lib/dk/kmd_api.lua", d="/system/lib/dk/kmd_api.lua" },
-        { s="/kernel/system/lib/dk/common_api.lua", d="/system/lib/dk/common_api.lua" },
-        { s="/kernel/sys/security/dkms_sec.lua", d="/sys/security/dkms_sec.lua" },
-        { s="/kernel/drivers/tty.sys.lua", d="/drivers/tty.sys.lua" },
-        { s="/kernel/drivers/gpu.sys.lua", d="/drivers/gpu.sys.lua" },
-        { s="/kernel/drivers/keyboard.sys.lua", d="/drivers/keyboard.sys.lua" },
-        { s="/kernel/drivers/ringfs.sys.lua", d="/drivers/ringfs.sys.lua" },
-        { s="/kernel/usr/commands/ls.lua", d="/usr/commands/ls.lua" }
-    }
-    
-    local total = #manifest + #State.Packages + 8
-    local done = 0
-    local function dl(url, dest)
-        done = done + 1
-        draw_prog(done/total, "Downloading " .. dest)
-        local d = http_get(url)
-        if d then local h = proxy.open(dest, "w"); proxy.write(h, d); proxy.close(h) end
-    end
-    
-    -- 1. Core System
-    for _, f in ipairs(manifest) do dl(RAW_BASE .. "/src" .. f.s, f.d) end
-    
-    -- 2. Packages
-    for _, p in ipairs(State.Packages) do
-        local pre = "/usr/misc"
-        if p.cat == "Drivers" then pre = "/drivers"
-        elseif p.cat == "Executable" then pre = "/usr/commands"
-        elseif p.cat == "Modules" then pre = "/lib"
-        elseif p.cat == "Multilib" then pre = "/usr/lib" end
-        dl(RAW_BASE .. "/" .. p.path, pre .. "/" .. p.name)
-    end
-    
-    -- 3. Configuration Generation
-    draw_prog(0.9, "Generating Configs...")
-    
-    local fstab = "-- AxisOS File System Table\nreturn {\n"
-    for _, m in ipairs(State.Mounts) do
-        if m.uuid ~= "virtual" then
-            local pth = "/dev/disk_" .. m.uuid:sub(1,4)
-            local mnt = (m.type == "swap") and "none" or m.mount
-            fstab = fstab .. string.format('  { uuid="%s", path="%s", mount="%s", type="%s", options="%s" },\n',
-                m.uuid, pth, mnt, m.type, m.options)
+
+    if not root_uuid then
+        local drives = scan_drives()
+        if #drives > 0 and drives[1].uuid ~= "virtual" then
+            auto_partition_drive(drives[1])
+            for _, m in ipairs(State.Mounts) do if m.mount == "/" then root_uuid = m.uuid end end
         end
     end
-    -- Always add system log
-    fstab = fstab .. '  { uuid="virtual", path="/dev/ringlog", mount="/var/log/syslog", type="ringfs", options="rw,size=8192" },\n'
-    fstab = fstab .. "}"
+
+    if not root_uuid then status_bar("Error: No Root Partition!"); os.sleep(2); return end
     
-    local h = proxy.open("/etc/fstab.lua", "w"); proxy.write(h, fstab); proxy.close(h)
+    local proxy = component.proxy(root_uuid)
+    if not proxy then status_bar("Error: Drive disconnected"); os.sleep(2); return end
     
-    local passwd = "return {\n"
-    passwd = passwd .. string.format('  root={uid=0, home="/root", shell="/bin/sh.lua", hash="%sAURA_SALT", ring=3},\n', string.reverse(State.RootPass))
-    for _, u in ipairs(State.Users) do
-        passwd = passwd .. string.format('  ["%s"]={uid=%d, home="/home/%s", shell="/bin/sh.lua", hash="%sAURA_SALT", ring=%d},\n',
-             u.name, u.sudo and 0 or 1000, u.name, string.reverse(u.pass), u.sudo and 0 or 3)
-    end
-    passwd = passwd .. "}"
-    h = proxy.open("/etc/passwd.lua", "w"); proxy.write(h, passwd); proxy.close(h)
-    h = proxy.open("/etc/hostname", "w"); proxy.write(h, State.Hostname); proxy.close(h)
+    -- == INIT UI ==
+    draw_install_interface(proxy.getLabel() or "HDD", root_uuid)
+    install_log("Installation initialized.", C_ACCENT)
+    install_log("Target mounted at /dev/disk_root", C_DIM)
     
-    -- 4. EEPROM / BIOS Flashing
-    draw_prog(0.95, "Flashing BIOS (boot.lua)...")
-    if component.isAvailable("eeprom") then
-        local bios_url = RAW_BASE .. "/src/bios/boot.lua"
-        local bios_code = http_get(bios_url)
+    -- 1. Wipe Root
+    install_log("Formatting filesystem...", C_WARN)
+    update_progress_detail(0, 100, "Formatting...", 0, 0)
+    local list = proxy.list("/")
+    for _, file in ipairs(list) do proxy.remove(file) end
+    install_log("Filesystem formatted. Label set to AxisOS.", C_SUCCESS)
+    update_stats()
+
+    -- 2. Download Core
+    local total_files = #CORE_MANIFEST + #State.Packages + 2 -- + configs
+    local current_step = 0
+    
+    for i, rel_path in ipairs(CORE_MANIFEST) do
+        current_step = current_step + 1
+        local start_t = computer.uptime()
         
-        if bios_code then
-            local min_bios = minify_code(bios_code)
-            component.eeprom.set(min_bios)
-            component.eeprom.setLabel("AxisBIOS v6")
-            component.eeprom.setData(root_uuid)
-            computer.setBootAddress(root_uuid)
+        update_progress_detail(current_step, total_files, rel_path, 0, 0)
+        install_log("Downloading " .. rel_path .. "...", C_TEXT)
+        update_stats()
+        
+        local url = RAW_ROOT .. "/src/kernel/" .. rel_path
+        local data, err = http_get(url)
+        
+        local end_t = computer.uptime()
+        local duration = end_t - start_t
+        local size = data and #data or 0
+        local speed = size / (duration > 0 and duration or 0.1)
+        
+        if data then
+            local parent = get_parent_dir(rel_path)
+            if parent ~= "" then proxy.makeDirectory("/" .. parent) end
+            local h = proxy.open("/" .. rel_path, "w")
+            proxy.write(h, data)
+            proxy.close(h)
+            
+            update_progress_detail(current_step, total_files, rel_path, speed, size)
+            install_log("  -> OK (" .. format_size(size) .. ")", C_SUCCESS)
         else
-            status_bar("Failed to download BIOS! Continuing with current EEPROM...")
+            install_log("  -> FAILED: " .. tostring(err), C_ERR)
+            os.sleep(0.5)
+        end
+    end
+    
+    -- 3. Install Packages
+    if #State.Packages > 0 then
+        install_log("Processing extra packages...", C_ACCENT)
+        for i, p in ipairs(State.Packages) do
+            current_step = current_step + 1
+            update_progress_detail(current_step, total_files, p.name, 0, 0)
+            install_log("Fetching package: " .. p.name)
+            update_stats()
+            
+            local pre = "/usr/misc"
+            if p.path:find("drivers") then pre = "/drivers"
+            elseif p.path:find("executable") then pre = "/usr/commands"
+            elseif p.path:find("modules") then pre = "/lib"
+            end
+            
+            proxy.makeDirectory(pre)
+            local url = RAW_ROOT .. "/" .. p.path
+            local data, err = http_get(url)
+            
+            if data then
+                local h = proxy.open(pre .. "/" .. p.name, "w")
+                proxy.write(h, data)
+                proxy.close(h)
+                install_log("  -> Installed to " .. pre, C_SUCCESS)
+            else
+                install_log("  -> PKG ERROR: " .. tostring(err), C_ERR)
+            end
+        end
+    end
+    
+    -- 4. Gen Configs
+    install_log("Generating system configuration...", C_ACCENT)
+    update_progress_detail(total_files-1, total_files, "/etc/fstab.lua", 0, 0)
+    
+    table.sort(State.Mounts, function(a, b) return (a.type == "rootfs") and not (b.type == "rootfs") end)
+    
+    local fstab = "-- Axis OS File System Table\nreturn {\n"
+    for _, m in ipairs(State.Mounts) do
+        if m.uuid ~= "virtual" then
+            local opts = "rw"
+            if m.type ~= "rootfs" and m.size_limit and m.size_limit > 0 then
+                opts = opts .. ",size=" .. math.floor(m.size_limit)
+            end
+            local ipath = m.path
+            if not ipath or ipath == "" then
+                if m.type == "rootfs" then ipath = "/"
+                elseif m.type == "swap" then ipath = "/swapfile"
+                elseif m.type == "homefs" then ipath = "/home"
+                elseif m.type == "ringfs" then ipath = "/log"
+                else ipath = m.mount end
+            end
+            fstab = fstab .. string.format('  { uuid = "%s", path = "%s", mount = "%s", type = "%s", options = "%s", },\n',
+                m.uuid, ipath, m.mount, m.type, opts)
+        end
+    end
+    fstab = fstab .. '  { uuid = "virtual", path = "/dev/ringlog", mount = "/var/log/syslog", type = "ringfs", options = "rw,size=8192", },\n}'
+    
+    proxy.makeDirectory("/etc")
+    local function wcf(p, c) local h=proxy.open(p,"w"); proxy.write(h,c); proxy.close(h) end
+    wcf("/etc/fstab.lua", fstab)
+    install_log("fstab generated.", C_DIM)
+    
+    local pwd = 'return {\n  root={uid=0, home="/root", shell="/bin/sh.lua", hash="SALT", ring=3},\n'
+    for _, u in ipairs(State.Users) do
+        pwd = pwd .. string.format('  ["%s"]={uid=%d, home="/home/%s", shell="/bin/sh.lua", hash="SALT", ring=%d},\n',
+             u.name, u.sudo and 0 or 1000, u.name, u.sudo and 0 or 3)
+    end
+    pwd = pwd .. "}"
+    wcf("/etc/passwd.lua", pwd)
+    wcf("/etc/hostname", State.Hostname)
+    
+    install_log("User database created.", C_DIM)
+    
+    -- 5. BIOS
+    if component.isAvailable("eeprom") then
+        install_log("Initializing firmware update...", C_WARN)
+        update_progress_detail(total_files, total_files, "EEPROM", 0, 0)
+        
+        local url = RAW_ROOT .. "/eeprom/boot.lua"
+        local biosCode, err = http_get(url)
+        
+        if biosCode then
+            if not (biosCode:match("local") or biosCode:match("function") or biosCode:match("component") or biosCode:match("return")) then
+                install_log("BIOS ERR: Content invalid!", C_ERR)
+                os.sleep(3)
+            else
+                install_log("Writing to EEPROM...", C_ACCENT)
+                local flash_res, flash_err = pcall(component.eeprom.set, biosCode)
+                if flash_res then
+                    component.eeprom.setLabel("AxisBIOS")
+                    component.eeprom.setData(root_uuid)
+                    
+                    if component.eeprom.get() == biosCode then
+                        install_log("BIOS VERIFIED [OK]", C_SUCCESS)
+                        pcall(computer.setBootAddress, root_uuid)
+                    else
+                        install_log("BIOS VERIFY FAILED! RETRYING...", C_ERR)
+                        os.sleep(1)
+                        component.eeprom.set(biosCode)
+                    end
+                else
+                    install_log("FLASH ERR: " .. tostring(flash_err), C_ERR)
+                    os.sleep(3)
+                end
+            end
+        else
+            install_log("BIOS DL FAIL: " .. tostring(err), C_ERR)
             os.sleep(2)
         end
     end
     
-    draw_prog(1.0, "Installation Complete. Rebooting..."); os.sleep(2); computer.shutdown(true)
+    update_progress_detail(100, 100, "DONE", 0, 0)
+    install_log("Installation Complete.", C_SUCCESS)
+    install_log("Rebooting in 3 seconds...", C_ACCENT)
+    os.sleep(3)
+    computer.shutdown(true)
 end
 
--- [[ 8. MAIN MENU ]] --
+-- === MAIN LOOP ===
 
 local function main_menu()
     local menu_state = 1
@@ -719,7 +1033,7 @@ local function main_menu()
                  if u then table.insert(State.Users, {name=u, pass=input_box("Password", "", true), sudo=false}) end
             end },
             { txt="------------------", val="", fn=nil },
-            { txt="Install AxisOS",     val=">>>", fn=install_os },
+            { txt="Install Axis OS",    val=">>>", fn=install_os },
             { txt="Abort",              val="", fn=function() if confirm_dialog("Quit?") then os.exit() end end }
         }
         
