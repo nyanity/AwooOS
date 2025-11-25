@@ -17,6 +17,24 @@
 
 > **Warning:** This OS is highly experimental. It fundamentally changes how software interacts with OC components. Standard OpenOS programs will likely require porting to work within the Axis sandbox.
 
+#### Roadmap:
+>- [x] Access Control List (ACL)
+>- [x] Ringed Kernel Authority (RKA)
+>- [x] Microkernel Architecture
+>- [x] WDM-like strict driver-model
+>- [x] IRP (I/O Request Packets) abstraction
+>- [x] DKMS & Dynamic Driver Loader
+>- [x] Virtual File System (VFS)
+>- [x] Handling frozen drivers
+>- [ ] Synapse Message Layer Token Randomization (sMLTR)
+>- [ ] Own Object Handles implementation
+>- [ ] Simulated Amiga RDB Disk Partition System
+>- [ ] Kernel Paravirtualization over Lua VM
+>- [ ] Pipes and flow redirection
+>- [ ] Network Stack (Modem / Linked Card)
+>- [ ] Memory Management (Garbage Collection & Limits)
+>- [ ] Multitasking in User-space (Ring 3)
+>- [x] Namespace Separation (Sandboxing)
 ---
 
 ## 🏗 System Architecture
