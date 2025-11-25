@@ -73,6 +73,8 @@ local C_WARN     = 0xFF9E42
 local C_SUCCESS  = 0x55FF55
 local C_HEADER   = 0x002228 
 
+local C_ORIGINAL_BG, C_ORIGINAL_FG = gpu.getBackground(), gpu.getForeground()
+
 local B = { H="─", V="│", TL="┌", TR="┐", BL="└", BR="┘" }
 
 if not internet then error("Internet Card required.") end
@@ -978,10 +980,12 @@ local function install_os(kernel_ver, bios_ver)
     local function wcf(p, c) local h=proxy.open(p,"w"); proxy.write(h,c); proxy.close(h) end
     wcf("/etc/fstab.lua", fstab)
     
-    local pwd = 'return {\n  root={uid=0, home="/root", shell="/bin/sh.lua", hash="SALT", ring=3},\n'
+    local pwd = string.format('return {\n  root={uid=0, home="/root", shell="/bin/sh.lua", hash="%s", ring=3},\n', string.reverse(State.RootPass) .. "AURA_SALT")
+    proxy.makeDirectory("/home")
     for _, u in ipairs(State.Users) do
-        pwd = pwd .. string.format('  ["%s"]={uid=%d, home="/home/%s", shell="/bin/sh.lua", hash="SALT", ring=%d},\n',
-             u.name, u.sudo and 0 or 1000, u.name, u.sudo and 0 or 3)
+        pwd = pwd .. string.format('  ["%s"]={uid=%d, home="/home/%s", shell="/bin/sh.lua", hash="%s", ring=%d},\n',
+             u.name, u.sudo and 0 or 1000, u.name, string.reverse(u.pass) .. "AURA_SALT", u.sudo and 0 or 3) -- etc/passwd
+        proxy.makeDirectory("/home/" .. u.name) -- create home dir for every user
     end
     pwd = pwd .. "}"
     wcf("/etc/passwd.lua", pwd)
@@ -1032,7 +1036,7 @@ end
 
 local function main_menu()
     local menu_state = 1
-    
+    local exit_and_clear = function() gpu.setBackground(C_ORIGINAL_BG) gpu.setForeground(C_ORIGINAL_FG) gpu.fill(1, 1, W, H, " ") os.exit() end
     while true do
         clear()
         draw_header()
@@ -1061,7 +1065,7 @@ local function main_menu()
                 local k, b = run_version_selector()
                 if k and b then install_os(k, b) end
             end },
-            { txt="Abort",              val="", fn=function() if confirm_dialog("Quit?") then os.exit() end end }
+            { txt="Abort",              val="", fn=function() if confirm_dialog("Quit?") then exit_and_clear() end end }
         }
         
         local iy = my + 2
@@ -1077,12 +1081,12 @@ local function main_menu()
             end
             iy = iy + 1
         end
-        
+
         local _, _, _, code = event.pull("key_down")
         if code == 200 then repeat menu_state = menu_state - 1; if menu_state < 1 then menu_state = #items end until items[menu_state].fn
         elseif code == 208 then repeat menu_state = menu_state + 1; if menu_state > #items then menu_state = 1 end until items[menu_state].fn
         elseif code == 28 then if items[menu_state].fn then items[menu_state].fn() end
-        elseif code == 16 then if confirm_dialog("Quit?") then os.exit() end end
+        elseif code == 16 then if confirm_dialog("Quit?") then exit_and_clear() end end
     end
 end
 
